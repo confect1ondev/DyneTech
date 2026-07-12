@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "dynetech:block/structure_shrinker" },
+    "facing=south": { "model": "dynetech:block/structure_shrinker", "y": 180 },
+    "facing=east":  { "model": "dynetech:block/structure_shrinker", "y": 90 },
+    "facing=west":  { "model": "dynetech:block/structure_shrinker", "y": 270 }
+  }
+}

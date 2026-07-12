@@ -1,0 +1,111 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+    id 'net.neoforged.moddev' version '2.0.78'
+}
+
+version = mod_version
+group = mod_group
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'JitPack'
+        url = 'https://jitpack.io'
+    }
+}
+
+base {
+    archivesName = 'DyneTech'
+}
+
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+neoForge {
+    version = project.neoforge_version
+
+    parchment {
+        mappingsVersion = project.parchment_version
+        minecraftVersion = project.parchment_mc_version
+    }
+
+    runs {
+        configureEach {
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            logLevel = org.slf4j.event.Level.DEBUG
+
+            // NixOS: expose Mesa/GLX to LWJGL. No-op on non-NixOS systems.
+            if (file('/run/opengl-driver/lib').exists()) {
+                def existing = System.getenv('LD_LIBRARY_PATH') ?: ''
+                environment 'LD_LIBRARY_PATH', existing.isEmpty()
+                        ? '/run/opengl-driver/lib'
+                        : "/run/opengl-driver/lib:${existing}"
+            }
+        }
+        client {
+            client()
+            systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+        }
+        server {
+            server()
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+        }
+        gameTestServer {
+            type = "gameTestServer"
+            systemProperty 'neoforge.enabledGameTestNamespaces', mod_id
+        }
+        data {
+            data()
+            programArguments.addAll '--mod', mod_id,
+                    '--all',
+                    '--output', file('src/generated/resources/').getAbsolutePath(),
+                    '--existing', file('src/main/resources/').getAbsolutePath()
+        }
+    }
+
+    mods {
+        dynetech {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+sourceSets.main.resources { srcDir 'src/generated/resources' }
+
+dependencies {
+    implementation "com.github.Virtuoel:Pehkui:${pehkui_version}"
+}
+
+processResources {
+    def replaceProperties = [
+            minecraft_version   : minecraft_version,
+            neoforge_version    : neoforge_version,
+            mod_id              : mod_id,
+            mod_name            : mod_name,
+            mod_license         : mod_license,
+            mod_version         : mod_version,
+            mod_authors         : mod_authors,
+            mod_description     : mod_description
+    ]
+    inputs.properties replaceProperties
+    filesMatching(['META-INF/neoforge.mods.toml', 'pack.mcmeta']) {
+        expand replaceProperties
+    }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) { from components.java }
+    }
+    repositories {
+        maven { url "file://${project.projectDir}/repo" }
+    }
+}

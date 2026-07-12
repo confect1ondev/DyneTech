@@ -1,0 +1,12 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "dynetech:item/tissue_compression_eliminator"
+  },
+  "overrides": [
+    {
+      "predicate": { "dynetech:lethal": 1.0 },
+      "model": "dynetech:item/tissue_compression_eliminator_lethal"
+    }
+  ]
+}
