@@ -1,29 +1,29 @@
-# DyneTech
+![DyneTech Banner](https://cdn.modrinth.com/data/cached_images/d52b6cecd98c6bed5a0f8f5ab0b7e594c494b063.png)
 
-A NeoForge mod for Minecraft 1.21.1. Shrink and grow things with discs, box up a whole structure into a pocket, redeploy it wherever. This mod is a 1.21.1 NeoForge port of the popular 1.12 [PymTech](https://www.curseforge.com/minecraft/mc-mods/pymtech) mod by Lucraft.
+🐜 **DyneTech:** This mod recreates the concept of Pym Particles to shrink and grow you, your pets, and even your house! This mod is a 1.21.1 NeoForge port of the popular 1.12 [PymTech](https://www.curseforge.com/minecraft/mc-mods/pymtech) mod by Lucraft, which was originally the Ant-Man mod.
 
-## Features
+![Divider](https://cdn.modrinth.com/data/cached_images/042a97c7a3ae381f30dcb520ffc9cf8fe2746347.png)
 
-- **Pym Particle Discs**: throw one to shrink or enlarge a mob (or yourself). Comes in two flavors.
-- **Structure Shrinker**: place the block, mark a region, get a shrunken copy of it in item form to pick up and regrow elsewhere.
-- **Tissue Compression Eliminator**: a sidearm for when a mob is more useful pocket-sized. Optionally lethal.
+❓ **F.A.Q.:**
+* **Will other features be ported?** Maybe. If there's demand and if we have the time to develop this mod further, anything is possible.
+* **Is this a watered down derivative? What about the original?** I mean, kind of? This is a 1.21.1 port because that's the version I play most, and the version Landfall runs. (That said, if there *was* an official port of PymTech in progress, the structure shrinker implementation would be written by yours truly! 😉)
+* **What is the Tissue Compression Eliminator?** [A cursed crossover because I felt like it.](https://tardis.fandom.com/wiki/Tissue_Compression_Eliminator)
 
-## Requirements
+![Divider](https://cdn.modrinth.com/data/cached_images/042a97c7a3ae381f30dcb520ffc9cf8fe2746347.png)
 
+❗ **Details:**
+
+Requirements:
 - Minecraft 1.21.1
 - NeoForge 21.1+
 - [Pehkui](https://github.com/Virtuoel/Pehkui) 3.8+ (handles the scale changes)
 
-## Building
-
+Building:
 ```
 ./gradlew build
 ```
 
-Jar lands in `build/libs/`.
-
-## Running in dev
-
+Running in dev:
 ```
 ./gradlew runClient   # or runServer
 ```
