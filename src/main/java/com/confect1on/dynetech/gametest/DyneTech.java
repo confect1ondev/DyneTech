@@ -40,6 +40,8 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import com.confect1on.dynetech.block.DTBlocks;
 import com.confect1on.dynetech.blockentity.StructureShrinkerBlockEntity;
+import com.confect1on.dynetech.config.DTConfig;
+import com.confect1on.dynetech.config.ProtectedRegion;
 import com.confect1on.dynetech.client.ClientStructureCache;
 import com.confect1on.dynetech.client.ClientStructureChunkAssembler;
 import com.confect1on.dynetech.entity.DTEntityTypes;
@@ -382,6 +384,93 @@ public final class DyneTech {
                             "no shrunken entity should spawn when selection exceeds max volume");
                 })
                 .thenSucceed();
+    }
+
+    /**
+     * A shrink that would touch an operator-defined protected region is refused before the world
+     * gets touched. Uses the DTConfig test hook to declare the whole arena protected, then confirms
+     * the selection block is still standing and no shrunken entity spawned.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 100)
+    public static void shrinker_refuses_selection_in_protected_region(GameTestHelper helper) {
+        buildArena(helper, "shrinker refuses in protected region",
+                EnumSet.of(ArenaZone.SHRINKER, ArenaZone.SOURCE));
+
+        StructureShrinkerBlockEntity shrinker = placeShrinker(helper, SHRINKER_POS);
+        placeShrinkerButton(helper);
+
+        helper.setBlock(ROW_A, Blocks.STONE);
+        shrinker.setSelection(helper.absolutePos(ROW_A), helper.absolutePos(ROW_A));
+
+        DTConfig.setResolvedProtectedRegionsForTest(List.of(arenaProtectedRegion(helper)));
+
+        helper.startSequence()
+                .thenExecute(() -> helper.pressButton(SHRINKER_BUTTON_POS))
+                .thenExecuteAfter(2, () -> {
+                    try {
+                        helper.assertBlockPresent(Blocks.STONE, ROW_A);
+                        helper.assertTrue(countShrunkenNearShrinker(helper) == 0,
+                                "no shrunken entity should spawn when the selection sits in a protected region");
+                    } finally {
+                        DTConfig.setResolvedProtectedRegionsForTest(null);
+                    }
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Shrink runs outside protection, then the arena flips protected before the grow disc lands.
+     * The regrow must refuse: entity stays alive, no blocks change, and Pehkui target scale is
+     * reset to the shrunken value so the visible size tweens back down.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 400)
+    public static void regrow_refuses_in_protected_region_and_tweens_back(GameTestHelper helper) {
+        buildArena(helper, "regrow refuses in protected region",
+                EnumSet.of(ArenaZone.SHRINKER, ArenaZone.SOURCE));
+
+        StructureShrinkerBlockEntity shrinker = placeShrinker(helper, SHRINKER_POS);
+        placeShrinkerButton(helper);
+
+        helper.setBlock(ROW_A, Blocks.STONE);
+        shrinker.setSelection(helper.absolutePos(ROW_A), helper.absolutePos(ROW_A));
+
+        helper.startSequence()
+                .thenExecute(() -> helper.pressButton(SHRINKER_BUTTON_POS))
+                .thenWaitUntil(() -> {
+                    List<ShrunkenStructureEntity> list = findShrunkenList(helper);
+                    helper.assertTrue(list.size() == 1 && PehkuiCompat.getScale(list.get(0)) <= 0.5F,
+                            "waiting for shrink animation to finish");
+                })
+                .thenExecute(() -> {
+                    // Mark the arena protected only after capture. Grow disc kicks off the regrow
+                    // attempt that must now be refused.
+                    DTConfig.setResolvedProtectedRegionsForTest(List.of(arenaProtectedRegion(helper)));
+                    fireGrowDisc(helper, findShrunken(helper));
+                })
+                .thenExecuteAfter(80, () -> {
+                    try {
+                        helper.assertBlockPresent(Blocks.AIR, ROW_A);
+                        List<ShrunkenStructureEntity> list = findShrunkenList(helper);
+                        helper.assertTrue(list.size() == 1,
+                                "shrunken entity must survive a refused regrow, found " + list.size());
+                        float target = PehkuiCompat.getTargetScale(list.get(0));
+                        helper.assertTrue(target <= 0.2F,
+                                "refused regrow should reset target scale near SPAWN_SCALE, got " + target);
+                    } finally {
+                        DTConfig.setResolvedProtectedRegionsForTest(null);
+                    }
+                })
+                .thenSucceed();
+    }
+
+    /** Covers the full 5x5x5 arena at whatever absolute location the framework picked. */
+    private static ProtectedRegion arenaProtectedRegion(GameTestHelper helper) {
+        BlockPos a = helper.absolutePos(new BlockPos(0, 0, 0));
+        BlockPos b = helper.absolutePos(new BlockPos(4, 4, 4));
+        return new ProtectedRegion(
+                helper.getLevel().dimension().location().toString(),
+                Math.min(a.getX(), b.getX()), Math.min(a.getY(), b.getY()), Math.min(a.getZ(), b.getZ()),
+                Math.max(a.getX(), b.getX()), Math.max(a.getY(), b.getY()), Math.max(a.getZ(), b.getZ()));
     }
 
     /**

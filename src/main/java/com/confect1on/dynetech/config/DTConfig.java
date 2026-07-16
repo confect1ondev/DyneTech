@@ -124,6 +124,14 @@ public final class DTConfig {
     }
 
     /**
+     * GameTest hook: overrides the resolved list without touching the config file.
+     * Pass null to drop the override and re-read from config on next call.
+     */
+    public static void setResolvedProtectedRegionsForTest(List<ProtectedRegion> regions) {
+        cachedProtectedRegions = regions == null ? null : List.copyOf(regions);
+    }
+
+    /**
      * Wired to ModConfigEvent so /reload or a config file edit drops stale caches.
      * Called from DyneTech's constructor via modBus.addListener.
      */
