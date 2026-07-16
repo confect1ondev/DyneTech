@@ -38,6 +38,7 @@ public class DyneTech {
 
         modBus.addListener(DTPayloads::register);
         modBus.addListener(DyneTech::registerCapabilities);
+        modBus.addListener(DTConfig::onConfigEvent);
 
         container.registerConfig(ModConfig.Type.SERVER, DTConfig.SPEC);
     }
