@@ -112,10 +112,29 @@ public class StructureShrinkerBlockEntity extends BlockEntity implements MenuPro
             return;
         }
 
+        // Refuse recursive nesting: a captured chest full of shrunken items would let the
+        // dependency tree grow without bound, and paste-back on the outer blob would resurrect
+        // shrunken items whose backing UUIDs may have been garbage-collected.
+        if (StructureBlob.containsShrunkenItems(server, min, max)) {
+            if (activator != null) activator.displayClientMessage(
+                    Component.literal("Cannot capture regions containing shrunken items"), true);
+            return;
+        }
+
         // Blacklisted blocks are quietly skipped during capture/clear (see StructureBlob) and the shrink now proceeds around them instead of refusing the whole op
         StructureBlob blob = StructureBlob.capture(server, min, max);
         if (blob.isEmpty()) {
             if (activator != null) activator.displayClientMessage(Component.literal("Selection contains no blocks"), true);
+            return;
+        }
+
+        // Serialize-and-measure BEFORE clearRegion — if this blob is too fat to safely round-trip
+        // through packets/save files, abort while the world is still intact.
+        int blobBytes = blob.computeSerializedSize(server.registryAccess());
+        int maxBlobBytes = DTConfig.SHRINK_MAX_BLOB_BYTES.get();
+        if (blobBytes > maxBlobBytes) {
+            if (activator != null) activator.displayClientMessage(
+                    Component.literal("Structure too large: " + blobBytes + " bytes (max " + maxBlobBytes + ")"), true);
             return;
         }
 

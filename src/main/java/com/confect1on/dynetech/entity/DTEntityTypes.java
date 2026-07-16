@@ -12,13 +12,13 @@ public class DTEntityTypes {
     public static final DeferredRegister<EntityType<?>> ENTITY_TYPES =
             DeferredRegister.create(Registries.ENTITY_TYPE, DyneTech.MODID);
 
-    public static final DeferredHolder<EntityType<?>, EntityType<PymParticleDiskEntity>> PYM_PARTICLE_DISK =
-            ENTITY_TYPES.register("pym_particle_disk", () -> EntityType.Builder
-                    .<PymParticleDiskEntity>of(PymParticleDiskEntity::new, MobCategory.MISC)
+    public static final DeferredHolder<EntityType<?>, EntityType<PymParticleDiscEntity>> PYM_PARTICLE_DISC =
+            ENTITY_TYPES.register("pym_particle_disc", () -> EntityType.Builder
+                    .<PymParticleDiscEntity>of(PymParticleDiscEntity::new, MobCategory.MISC)
                     .sized(0.5F, 0.5F)
                     .clientTrackingRange(4)
                     .updateInterval(10)
-                    .build("pym_particle_disk"));
+                    .build("pym_particle_disc"));
 
     public static final DeferredHolder<EntityType<?>, EntityType<ShrunkenStructureEntity>> SHRUNKEN_STRUCTURE =
             ENTITY_TYPES.register("shrunken_structure", () -> EntityType.Builder

@@ -2,17 +2,29 @@ package com.confect1on.dynetech.gametest;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.Vec3i;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTest;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtIo;
 import net.neoforged.neoforge.gametest.GameTestHolder;
 import net.neoforged.neoforge.gametest.PrefixGameTestTemplate;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.animal.Pig;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.ItemContainerContents;
+import net.minecraft.world.item.crafting.CraftingInput;
+import net.minecraft.world.item.crafting.RecipeType;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.StandingSignBlock;
@@ -28,15 +40,26 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import com.confect1on.dynetech.block.DTBlocks;
 import com.confect1on.dynetech.blockentity.StructureShrinkerBlockEntity;
+import com.confect1on.dynetech.client.ClientStructureCache;
+import com.confect1on.dynetech.client.ClientStructureChunkAssembler;
 import com.confect1on.dynetech.entity.DTEntityTypes;
-import com.confect1on.dynetech.entity.PymParticleDiskEntity;
+import com.confect1on.dynetech.entity.PymParticleDiscEntity;
 import com.confect1on.dynetech.entity.ShrunkenEntityEntity;
 import com.confect1on.dynetech.entity.ShrunkenStructureEntity;
 import com.confect1on.dynetech.item.DTItems;
+import com.confect1on.dynetech.item.ShrunkenStructureItem;
 import com.confect1on.dynetech.pehkui.PehkuiCompat;
+import com.confect1on.dynetech.storage.ShrunkenStructureRef;
+import com.confect1on.dynetech.storage.ShrunkenStructureStorage;
+import com.confect1on.dynetech.storage.StructureBlob;
 
+import java.io.ByteArrayOutputStream;
+import java.io.DataOutputStream;
+import java.util.Arrays;
 import java.util.EnumSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * GameTests for the structure shrinker (1.21.1 NeoForge classic API).
@@ -46,7 +69,7 @@ import java.util.List;
  * sign so tests are distinguishable when they run side by side.
  *
  * <p>Tests exercise the real in-game flow. Shrinking is triggered by pressing a stone button on
- * the shrinker; regrowth by spawning a real {@link PymParticleDiskEntity} directly aimed at
+ * the shrinker; regrowth by spawning a real {@link PymParticleDiscEntity} directly aimed at
  * the {@link ShrunkenStructureEntity}. The roundtrip test additionally has a mock player pick up
  * the entity, carry it, and toss it onto the target zone. The only shortcut is
  * {@code setSelection}, which stands in for the shrinker's selection GUI.
@@ -449,6 +472,412 @@ public final class DyneTech {
     }
 
     // ============================================================================
+    //  Production-hardening regression tests
+    // ============================================================================
+
+    /**
+     * A chest inside the selection that carries a shrunken-structure item must cause the whole
+     * shrink to be refused — nested shrunken items would let the blob dependency tree grow
+     * unbounded and open a duplication path on paste. The chest, its contents, and the source
+     * blocks must all remain untouched.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 100)
+    public static void shrinker_refuses_nested_shrunken_item(GameTestHelper helper) {
+        buildArena(helper, "shrinker refuses nested shrunken item",
+                EnumSet.of(ArenaZone.SHRINKER, ArenaZone.SOURCE));
+
+        StructureShrinkerBlockEntity shrinker = placeShrinker(helper, SHRINKER_POS);
+        placeShrinkerButton(helper);
+
+        helper.setBlock(ROW_A, Blocks.CHEST);
+        ChestBlockEntity chest = (ChestBlockEntity) helper.getLevel().getBlockEntity(helper.absolutePos(ROW_A));
+        // The UUID doesn't need to point anywhere real — the nesting check is a component-presence
+        // test on the item stack, not a resolution of the backing blob.
+        ItemStack shrunken = ShrunkenStructureItem.create(
+                new ShrunkenStructureRef(UUID.randomUUID(), new Vec3i(1, 1, 1)));
+        chest.setItem(0, shrunken);
+
+        shrinker.setSelection(helper.absolutePos(ROW_A), helper.absolutePos(ROW_A));
+
+        helper.startSequence()
+                .thenExecute(() -> helper.pressButton(SHRINKER_BUTTON_POS))
+                .thenExecuteAfter(2, () -> {
+                    helper.assertBlockPresent(Blocks.CHEST, ROW_A);
+                    ChestBlockEntity after = (ChestBlockEntity) helper.getLevel()
+                            .getBlockEntity(helper.absolutePos(ROW_A));
+                    helper.assertTrue(after.getItem(0).is(DTItems.SHRUNKEN_STRUCTURE.get()),
+                            "nested shrunken item should still be in the chest");
+                    helper.assertTrue(countShrunkenNearShrinker(helper) == 0,
+                            "no shrunken entity should spawn when nesting is refused");
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Detector recursion: the shrunken item is hidden two levels deep — inside a shulker-box
+     * item that itself sits in a chest slot. {@code ShrunkenItemDetector} must descend through
+     * the shulker's CONTAINER component and the shrink must still be refused.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 100)
+    public static void shrinker_refuses_shulker_nested_shrunken_item(GameTestHelper helper) {
+        buildArena(helper, "shrinker refuses shulker nested shrunken item",
+                EnumSet.of(ArenaZone.SHRINKER, ArenaZone.SOURCE));
+
+        StructureShrinkerBlockEntity shrinker = placeShrinker(helper, SHRINKER_POS);
+        placeShrinkerButton(helper);
+
+        helper.setBlock(ROW_A, Blocks.CHEST);
+        ChestBlockEntity chest = (ChestBlockEntity) helper.getLevel().getBlockEntity(helper.absolutePos(ROW_A));
+        ItemStack shrunken = ShrunkenStructureItem.create(
+                new ShrunkenStructureRef(UUID.randomUUID(), new Vec3i(1, 1, 1)));
+        ItemStack shulker = new ItemStack(Items.SHULKER_BOX);
+        shulker.set(DataComponents.CONTAINER, ItemContainerContents.fromItems(List.of(shrunken)));
+        chest.setItem(0, shulker);
+
+        shrinker.setSelection(helper.absolutePos(ROW_A), helper.absolutePos(ROW_A));
+
+        helper.startSequence()
+                .thenExecute(() -> helper.pressButton(SHRINKER_BUTTON_POS))
+                .thenExecuteAfter(2, () -> {
+                    helper.assertBlockPresent(Blocks.CHEST, ROW_A);
+                    ChestBlockEntity after = (ChestBlockEntity) helper.getLevel()
+                            .getBlockEntity(helper.absolutePos(ROW_A));
+                    helper.assertTrue(after.getItem(0).is(Items.SHULKER_BOX),
+                            "shulker with nested shrunken item should still be in the chest");
+                    helper.assertTrue(countShrunkenNearShrinker(helper) == 0,
+                            "no shrunken entity should spawn when a shulker-nested shrunken item is present");
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * TCE must refuse a target that's carrying a shrunken item in any equipment slot. The pig
+     * stays alive and no shrunken-entity carrier spawns.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 100)
+    public static void tce_refuses_target_holding_shrunken_item(GameTestHelper helper) {
+        buildArena(helper, "tce refuses target holding shrunken item",
+                EnumSet.of(ArenaZone.SHRINKER, ArenaZone.SOURCE));
+
+        BlockPos pigRel = new BlockPos(3, 1, 1);
+        Vec3 pigCenter = Vec3.atCenterOf(helper.absolutePos(pigRel));
+        Pig pig = helper.spawn(EntityType.PIG, pigRel);
+        ItemStack shrunken = ShrunkenStructureItem.create(
+                new ShrunkenStructureRef(UUID.randomUUID(), new Vec3i(1, 1, 1)));
+        pig.setItemSlot(EquipmentSlot.MAINHAND, shrunken);
+
+        Player shooter = helper.makeMockPlayer(GameType.SURVIVAL);
+        shooter.setPos(pigCenter.x - 2.0, pigCenter.y - shooter.getEyeHeight() + 0.5, pigCenter.z);
+        shooter.lookAt(net.minecraft.commands.arguments.EntityAnchorArgument.Anchor.EYES, pigCenter);
+        shooter.setItemInHand(InteractionHand.MAIN_HAND,
+                DTItems.TISSUE_COMPRESSION_ELIMINATOR.get().getDefaultInstance());
+
+        helper.startSequence()
+                .thenExecute(() -> DTItems.TISSUE_COMPRESSION_ELIMINATOR.get()
+                        .use(helper.getLevel(), shooter, InteractionHand.MAIN_HAND))
+                .thenExecuteAfter(2, () -> {
+                    helper.assertTrue(pig.isAlive(), "pig should still be alive — TCE must refuse");
+                    List<ShrunkenEntityEntity> spawned = findShrunkenEntitiesNear(helper, pigRel);
+                    helper.assertTrue(spawned.isEmpty(),
+                            "no shrunken-entity carrier should spawn when target holds a shrunken item");
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * A stored blob whose lastSeen falls outside the TTL window is purged by {@code sweep}. Uses
+     * the injectable-clock overload to simulate time passing without waiting real ticks.
+     *
+     * <p>Runs against a standalone storage instance rather than the shared overworld SavedData:
+     * a future-clock sweep on the shared store would purge blobs belonging to tests running in
+     * the same batch (their lastSeen stamps all predate the shifted cutoff).
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 100)
+    public static void storage_sweep_purges_stale_blob(GameTestHelper helper) {
+        buildArena(helper, "storage sweep purges stale blob", EnumSet.of(ArenaZone.SHRINKER));
+
+        ShrunkenStructureStorage storage = new ShrunkenStructureStorage();
+        UUID id = storage.store(makeTrivialBlob());
+        long now = System.currentTimeMillis() / 1000L;
+
+        int purged = storage.sweep(60L, now + 3600L);
+
+        helper.assertTrue(purged == 1, "expected exactly one purged entry, got " + purged);
+        helper.assertTrue(storage.get(id) == null, "purged blob must not be retrievable");
+        helper.succeed();
+    }
+
+    /**
+     * {@code touch} must rescue a genuinely aged blob from an otherwise-purging sweep. The
+     * storage is built by loading crafted NBT so two blobs start with a LastSeen 1000s in the
+     * past (well beyond the 60s TTL used below), plus one legacy entry with no LastSeen at all.
+     * Touching one aged blob refreshes its clock; the sweep must purge exactly the untouched
+     * aged blob, keep the touched one, and keep the legacy entry (a missing LastSeen defaults
+     * to load time — the pre-migration grace period).
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 100)
+    public static void storage_touch_rescues_aged_blob_from_sweep(GameTestHelper helper) {
+        buildArena(helper, "storage touch rescues aged blob from sweep",
+                EnumSet.of(ArenaZone.SHRINKER));
+
+        var registries = helper.getLevel().registryAccess();
+        long now = System.currentTimeMillis() / 1000L;
+        UUID staleId = UUID.randomUUID();
+        UUID touchedId = UUID.randomUUID();
+        UUID legacyId = UUID.randomUUID();
+
+        ListTag list = new ListTag();
+        list.add(storageEntry(staleId, registries, now - 1000L));
+        list.add(storageEntry(touchedId, registries, now - 1000L));
+        list.add(storageEntry(legacyId, registries, null));
+        CompoundTag root = new CompoundTag();
+        root.put("Structures", list);
+        ShrunkenStructureStorage storage = ShrunkenStructureStorage.load(root, registries);
+
+        storage.touch(touchedId);
+        int purged = storage.sweep(60L, now);
+
+        helper.assertTrue(purged == 1, "expected exactly the untouched aged blob purged, got " + purged);
+        helper.assertTrue(storage.get(staleId) == null, "untouched aged blob must be purged");
+        helper.assertTrue(storage.get(touchedId) != null, "touched blob must survive the sweep");
+        helper.assertTrue(storage.get(legacyId) != null,
+                "legacy blob without LastSeen must get the load-time grace period");
+        helper.succeed();
+    }
+
+    /** One serialized {@code Structures} list entry; {@code lastSeen == null} omits the tag. */
+    private static CompoundTag storageEntry(UUID id, HolderLookup.Provider registries, Long lastSeen) {
+        CompoundTag e = new CompoundTag();
+        e.putUUID("Id", id);
+        e.put("Blob", makeTrivialBlob().save(registries));
+        if (lastSeen != null) e.putLong("LastSeen", lastSeen);
+        return e;
+    }
+
+    /**
+     * {@code StructureBlob.computeSerializedSize} must match the byte count you'd get by
+     * serializing the same blob through {@code NbtIo.write}. If it drifts, the size cap check
+     * lets pathological blobs through.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 100)
+    public static void blob_computed_size_matches_serialized_bytes(GameTestHelper helper) {
+        buildArena(helper, "blob computed size matches serialized bytes",
+                EnumSet.of(ArenaZone.SHRINKER));
+
+        var registries = helper.getLevel().registryAccess();
+        // Both a bare palette-only blob and one carrying block-entity NBT — BE payloads are what
+        // the size cap exists to catch, so they must be counted identically.
+        for (StructureBlob blob : List.of(makeTrivialBlob(), makeChestBlob(helper))) {
+            int computed = blob.computeSerializedSize(registries);
+
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            try (DataOutputStream dos = new DataOutputStream(baos)) {
+                NbtIo.write(blob.save(registries), dos);
+            } catch (java.io.IOException e) {
+                helper.fail("nbt write failed: " + e.getMessage());
+                return;
+            }
+            int actual = baos.size();
+            helper.assertTrue(computed == actual,
+                    "computeSerializedSize=" + computed + " but actual write produced " + actual + " bytes");
+        }
+        helper.succeed();
+    }
+
+    /**
+     * End-to-end verification of the chunked SyncStructure transport through the real client
+     * assembler: compress a captured blob (including block-entity NBT) the way
+     * {@code sendBlobChunked} does, split it into several chunks, and feed them to
+     * {@link ClientStructureChunkAssembler} out of order — with a duplicate and an out-of-range
+     * seq mixed in, which must both be ignored. The blob may only land in
+     * {@link ClientStructureCache} once the final missing chunk arrives, and the reassembled
+     * blob's NBT must be identical to the original's.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 100)
+    public static void chunked_transport_roundtrips_blob_bytes(GameTestHelper helper) {
+        buildArena(helper, "chunked transport roundtrips blob bytes",
+                EnumSet.of(ArenaZone.SHRINKER));
+
+        var registries = helper.getLevel().registryAccess();
+        StructureBlob original = makeChestBlob(helper);
+
+        byte[] compressed;
+        try {
+            ByteArrayOutputStream baos = new ByteArrayOutputStream();
+            NbtIo.writeCompressed(original.save(registries), baos);
+            compressed = baos.toByteArray();
+        } catch (java.io.IOException e) {
+            helper.fail("compress failed: " + e.getMessage());
+            return;
+        }
+
+        // Force multiple chunks with a tiny chunk size, so the assembly path is exercised.
+        int chunkSize = Math.max(1, compressed.length / 4);
+        int total = (compressed.length + chunkSize - 1) / chunkSize;
+        helper.assertTrue(total >= 3, "need at least 3 chunks for a meaningful test, got " + total);
+        byte[][] chunks = new byte[total][];
+        for (int i = 0; i < total; i++) {
+            int off = i * chunkSize;
+            chunks[i] = Arrays.copyOfRange(compressed, off, Math.min(off + chunkSize, compressed.length));
+        }
+
+        UUID id = UUID.randomUUID();
+        ClientStructureCache.clear();
+
+        // Out-of-range seq: must be ignored, not start or corrupt a buffer.
+        ClientStructureChunkAssembler.accept(id, total, total, chunks[0], registries);
+        // Deliver everything except chunk 0, in reverse order.
+        for (int i = total - 1; i >= 1; i--) {
+            ClientStructureChunkAssembler.accept(id, i, total, chunks[i], registries);
+        }
+        // Duplicate: must not count toward completion.
+        ClientStructureChunkAssembler.accept(id, 1, total, chunks[1], registries);
+        helper.assertTrue(ClientStructureCache.get(id) == null,
+                "blob must not be assembled before all chunks have arrived");
+
+        ClientStructureChunkAssembler.accept(id, 0, total, chunks[0], registries);
+        StructureBlob roundtripped = ClientStructureCache.get(id);
+        helper.assertTrue(roundtripped != null, "blob should be assembled after the final chunk");
+        helper.assertTrue(roundtripped.save(registries).equals(original.save(registries)),
+                "roundtripped blob NBT differs from the original");
+        ClientStructureCache.clear();
+        helper.succeed();
+    }
+
+    /**
+     * A single-block blob suitable for storage/serialization tests. Uses stone (a common block
+     * that's cheap to encode in the palette).
+     */
+    private static StructureBlob makeTrivialBlob() {
+        return new StructureBlob(
+                new Vec3i(1, 1, 1),
+                List.of(Blocks.STONE.defaultBlockState()),
+                new int[]{0},
+                new HashMap<>());
+    }
+
+    /**
+     * A single-chest blob with real block-entity NBT (two filled slots), captured through the
+     * live {@link StructureBlob#capture} path. Exercises the BlockEntities branch of
+     * save/load/size accounting that {@link #makeTrivialBlob()} misses.
+     */
+    private static StructureBlob makeChestBlob(GameTestHelper helper) {
+        helper.setBlock(ROW_A, Blocks.CHEST);
+        ChestBlockEntity chest = (ChestBlockEntity) helper.getLevel().getBlockEntity(helper.absolutePos(ROW_A));
+        chest.setItem(0, new ItemStack(Items.DIAMOND, 13));
+        chest.setItem(8, new ItemStack(Items.OAK_PLANKS, 64));
+        BlockPos abs = helper.absolutePos(ROW_A);
+        return StructureBlob.capture(helper.getLevel(), abs, abs);
+    }
+
+    // ============================================================================
+    //  Pym particle fluid & disc recipe tests
+    // ============================================================================
+
+    /**
+     * A pig standing in shrink particle fluid must shrink gradually (multiplicative step per
+     * tick, so it passes 0.5x well before the limit) and then clamp exactly at the shrink
+     * disc's limit instead of shrinking forever.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 400)
+    public static void shrink_fluid_gradually_shrinks_entity_to_limit(GameTestHelper helper) {
+        buildArena(helper, "shrink fluid gradually shrinks entity to limit",
+                EnumSet.noneOf(ArenaZone.class));
+        buildFluidBasin(helper, DTBlocks.SHRINK_PYM_PARTICLES.get());
+        Pig pig = helper.spawn(EntityType.PIG, BASIN_POS);
+        float limit = DTItems.SHRINK_DISC.get().size;
+
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(PehkuiCompat.getScale(pig) <= 0.5F,
+                        "waiting for pig to shrink past halfway"))
+                .thenWaitUntil(() -> helper.assertTrue(PehkuiCompat.getScale(pig) <= limit + 0.001F,
+                        "waiting for pig to reach the shrink limit"))
+                .thenExecuteAfter(20, () -> {
+                    float scale = PehkuiCompat.getScale(pig);
+                    helper.assertTrue(scale >= limit - 0.001F,
+                            "scale must clamp at the shrink disc limit " + limit + " but was " + scale);
+                    pig.discard();
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * The enlarge fluid must gradually grow a pig standing in it. Stops the test at 1.5x and
+     * removes the fluid — letting the pig run all the way to the 5x limit would have a giant
+     * mob wandering through neighboring arenas.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 200)
+    public static void enlarge_fluid_gradually_grows_entity(GameTestHelper helper) {
+        buildArena(helper, "enlarge fluid gradually grows entity",
+                EnumSet.noneOf(ArenaZone.class));
+        buildFluidBasin(helper, DTBlocks.ENLARGE_PYM_PARTICLES.get());
+        Pig pig = helper.spawn(EntityType.PIG, BASIN_POS);
+
+        helper.startSequence()
+                .thenWaitUntil(() -> helper.assertTrue(PehkuiCompat.getScale(pig) >= 1.5F,
+                        "waiting for pig to grow to 1.5x"))
+                .thenExecute(() -> {
+                    helper.setBlock(BASIN_POS, Blocks.AIR);
+                    pig.discard();
+                })
+                .thenSucceed();
+    }
+
+    /**
+     * Crafting a particle bucket surrounded by 8 empty discs yields 8 of the matching disc,
+     * and the bucket survives as an empty bucket in the crafting remainder.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 100)
+    public static void disc_recipes_craft_from_bucket_and_return_it(GameTestHelper helper) {
+        buildArena(helper, "disc recipes craft from bucket and return it",
+                EnumSet.noneOf(ArenaZone.class));
+
+        checkDiscRecipe(helper, DTItems.SHRINK_PYM_PARTICLE_BUCKET.get(), DTItems.SHRINK_DISC.get());
+        checkDiscRecipe(helper, DTItems.ENLARGE_PYM_PARTICLE_BUCKET.get(), DTItems.ENLARGE_DISC.get());
+        helper.succeed();
+    }
+
+    private static void checkDiscRecipe(GameTestHelper helper,
+                                        net.minecraft.world.item.Item bucket,
+                                        net.minecraft.world.item.Item disc) {
+        var items = new java.util.ArrayList<ItemStack>(9);
+        for (int i = 0; i < 9; i++) {
+            items.add(i == 4 ? new ItemStack(bucket) : new ItemStack(DTItems.EMPTY_DISC.get()));
+        }
+        CraftingInput input = CraftingInput.of(3, 3, items);
+        var level = helper.getLevel();
+        var recipe = level.getRecipeManager()
+                .getRecipeFor(RecipeType.CRAFTING, input, level)
+                .orElse(null);
+        helper.assertTrue(recipe != null, "no crafting recipe matched the disc pattern for " + disc);
+
+        ItemStack result = recipe.value().assemble(input, level.registryAccess());
+        helper.assertTrue(result.is(disc) && result.getCount() == 8,
+                "expected 8x " + disc + " but got " + result);
+
+        var remaining = recipe.value().getRemainingItems(input);
+        helper.assertTrue(remaining.get(4).is(Items.BUCKET),
+                "empty bucket should remain in the grid, got " + remaining.get(4));
+    }
+
+    private static final BlockPos BASIN_POS = new BlockPos(2, 1, 2);
+
+    /**
+     * A 1x1 basin: the fluid source at {@link #BASIN_POS} boxed in by 2-high glass walls, so
+     * the fluid can't spread across the arena and the pig can't jump out.
+     */
+    private static void buildFluidBasin(GameTestHelper helper, net.minecraft.world.level.block.Block fluidBlock) {
+        for (int x = 1; x <= 3; x++) {
+            for (int z = 1; z <= 3; z++) {
+                if (x == 2 && z == 2) continue;
+                helper.setBlock(new BlockPos(x, 1, z), Blocks.GLASS);
+                helper.setBlock(new BlockPos(x, 2, z), Blocks.GLASS);
+            }
+        }
+        helper.setBlock(BASIN_POS, fluidBlock);
+    }
+
+    // ============================================================================
     //  Arena / helpers
     // ============================================================================
 
@@ -626,11 +1055,11 @@ public final class DyneTech {
      * mock player as the thrower so the projectile has a valid owner.
      */
     private static void fireGrowDisc(GameTestHelper helper, net.minecraft.world.entity.Entity target) {
-        fireDiscAt(helper, target, DTItems.ENLARGE_DISK.get().getDefaultInstance());
+        fireDiscAt(helper, target, DTItems.ENLARGE_DISC.get().getDefaultInstance());
     }
 
     private static void fireShrinkDisc(GameTestHelper helper, net.minecraft.world.entity.Entity target) {
-        fireDiscAt(helper, target, DTItems.SHRINK_DISK.get().getDefaultInstance());
+        fireDiscAt(helper, target, DTItems.SHRINK_DISC.get().getDefaultInstance());
     }
 
     private static void fireDiscAt(GameTestHelper helper, net.minecraft.world.entity.Entity target, ItemStack discStack) {
@@ -640,7 +1069,7 @@ public final class DyneTech {
         thrower.setXRot(90.0F);
         thrower.setYRot(0.0F);
 
-        PymParticleDiskEntity disc = new PymParticleDiskEntity(helper.getLevel(), thrower, discStack);
+        PymParticleDiscEntity disc = new PymParticleDiscEntity(helper.getLevel(), thrower, discStack);
         disc.setPos(thrower.getX(), thrower.getY() - 0.2, thrower.getZ());
         disc.shootFromRotation(thrower, 90.0F, 0.0F, 0.0F, 1.5F, 0.0F);
         helper.getLevel().addFreshEntity(disc);

@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "equipment",
+  "pattern": [
+    "DDD",
+    "DBD",
+    "DDD"
+  ],
+  "key": {
+    "D": {
+      "item": "dynetech:empty_disc"
+    },
+    "B": {
+      "item": "dynetech:enlarge_pym_particle_bucket"
+    }
+  },
+  "result": {
+    "id": "dynetech:enlarge_disc",
+    "count": 8
+  }
+}

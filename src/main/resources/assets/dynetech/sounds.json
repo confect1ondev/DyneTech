@@ -1,0 +1,26 @@
+{
+  "misc.pym_particle_shrinking": {
+    "sounds": [
+      "dynetech:misc/pym_particle_shrinking"
+    ],
+    "subtitle": "subtitles.dynetech.misc.pym_particle_shrinking"
+  },
+  "misc.pym_particle_shrinking_underwater": {
+    "sounds": [
+      "dynetech:misc/pym_particle_shrinking_underwater"
+    ],
+    "subtitle": "subtitles.dynetech.misc.pym_particle_shrinking_underwater"
+  },
+  "misc.pym_particle_enlarging": {
+    "sounds": [
+      "dynetech:misc/pym_particle_enlarging"
+    ],
+    "subtitle": "subtitles.dynetech.misc.pym_particle_enlarging"
+  },
+  "misc.pym_particle_enlarging_underwater": {
+    "sounds": [
+      "dynetech:misc/pym_particle_enlarging_underwater"
+    ],
+    "subtitle": "subtitles.dynetech.misc.pym_particle_enlarging_underwater"
+  }
+}
