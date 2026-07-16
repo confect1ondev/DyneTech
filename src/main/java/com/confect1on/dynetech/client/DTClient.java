@@ -1,7 +1,6 @@
 package com.confect1on.dynetech.client;
 
 import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;
-import net.minecraft.client.renderer.entity.ThrownItemRenderer;
 import net.minecraft.client.renderer.item.ItemProperties;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -10,11 +9,14 @@ import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.minecraft.resources.ResourceLocation;
+import net.neoforged.neoforge.client.extensions.common.IClientFluidTypeExtensions;
 import net.neoforged.neoforge.client.extensions.common.IClientItemExtensions;
 import net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent;
 import com.confect1on.dynetech.DyneTech;
 import com.confect1on.dynetech.blockentity.DTBlockEntities;
 import com.confect1on.dynetech.component.DTDataComponents;
+import com.confect1on.dynetech.client.renderer.PymParticleDiscRenderer;
 import com.confect1on.dynetech.client.renderer.ShrunkenEntityBEWLR;
 import com.confect1on.dynetech.client.renderer.ShrunkenEntityEntityRenderer;
 import com.confect1on.dynetech.client.renderer.ShrunkenStructureBEWLR;
@@ -22,6 +24,7 @@ import com.confect1on.dynetech.client.renderer.ShrunkenStructureEntityRenderer;
 import com.confect1on.dynetech.client.renderer.StructureShrinkerBlockEntityRenderer;
 import com.confect1on.dynetech.client.screen.StructureShrinkerScreen;
 import com.confect1on.dynetech.entity.DTEntityTypes;
+import com.confect1on.dynetech.fluid.DTFluids;
 import com.confect1on.dynetech.item.DTItems;
 import com.confect1on.dynetech.menu.DTMenus;
 
@@ -32,7 +35,7 @@ public class DTClient {
 
         @SubscribeEvent
         public static void registerEntityRenderers(EntityRenderersEvent.RegisterRenderers event) {
-            event.registerEntityRenderer(DTEntityTypes.PYM_PARTICLE_DISK.get(), ThrownItemRenderer::new);
+            event.registerEntityRenderer(DTEntityTypes.PYM_PARTICLE_DISC.get(), PymParticleDiscRenderer::new);
             event.registerEntityRenderer(DTEntityTypes.SHRUNKEN_STRUCTURE.get(), ShrunkenStructureEntityRenderer::new);
             event.registerEntityRenderer(DTEntityTypes.SHRUNKEN_ENTITY.get(), ShrunkenEntityEntityRenderer::new);
             event.registerBlockEntityRenderer(DTBlockEntities.STRUCTURE_SHRINKER.get(), StructureShrinkerBlockEntityRenderer::new);
@@ -82,6 +85,34 @@ public class DTClient {
                     return shrunkenEntityBewlr;
                 }
             }, DTItems.SHRUNKEN_ENTITY.get());
+
+            event.registerFluidType(pymParticleFluidExtensions(0xFFC83D3D), DTFluids.SHRINK_PYM_PARTICLES_TYPE.get());
+            event.registerFluidType(pymParticleFluidExtensions(0xFF3C99DB), DTFluids.ENLARGE_PYM_PARTICLES_TYPE.get());
+        }
+
+        // Reuses the vanilla water sprites; the tint gives each particle fluid its disc color.
+        private static IClientFluidTypeExtensions pymParticleFluidExtensions(int tint) {
+            return new IClientFluidTypeExtensions() {
+                @Override
+                public ResourceLocation getStillTexture() {
+                    return ResourceLocation.withDefaultNamespace("block/water_still");
+                }
+
+                @Override
+                public ResourceLocation getFlowingTexture() {
+                    return ResourceLocation.withDefaultNamespace("block/water_flow");
+                }
+
+                @Override
+                public ResourceLocation getOverlayTexture() {
+                    return ResourceLocation.withDefaultNamespace("block/water_overlay");
+                }
+
+                @Override
+                public int getTintColor() {
+                    return tint;
+                }
+            };
         }
     }
 

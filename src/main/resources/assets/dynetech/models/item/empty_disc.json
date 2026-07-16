@@ -1,6 +1,6 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "dynetech:item/shrink_disk"
+    "layer0": "dynetech:item/empty_disc"
   }
 }

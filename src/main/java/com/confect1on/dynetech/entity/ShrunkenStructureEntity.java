@@ -14,7 +14,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
+import net.minecraft.network.chat.Component;
 import com.confect1on.dynetech.component.DTDataComponents;
+import com.confect1on.dynetech.config.DTConfig;
 import com.confect1on.dynetech.pehkui.PehkuiCompat;
 import com.confect1on.dynetech.storage.ShrunkenStructureRef;
 import com.confect1on.dynetech.storage.ShrunkenStructureStorage;
@@ -113,6 +115,21 @@ public class ShrunkenStructureEntity extends Entity {
                         (int) Math.floor(this.getX() - blob.size().getX() / 2.0),
                         (int) Math.floor(this.getY()),
                         (int) Math.floor(this.getZ() - blob.size().getZ() / 2.0));
+
+                // Refuse regrow into a protected region (same policy as capture). Tween back
+                // to shrunken so it looks intentional; visual full-size for a second is fine
+                // since we skip the paste entirely. Blob and entity are preserved.
+                int sx = blob.size().getX(), sy = blob.size().getY(), sz = blob.size().getZ();
+                if (DTConfig.findProtectingRegion(server.dimension().location().toString(),
+                        origin.getX(), origin.getY(), origin.getZ(),
+                        origin.getX() + sx - 1, origin.getY() + sy - 1, origin.getZ() + sz - 1) != null) {
+                    PehkuiCompat.setTargetScale(this, SPAWN_SCALE, 20);
+                    Player near = server.getNearestPlayer(this, 24.0);
+                    if (near != null) near.displayClientMessage(
+                            Component.literal("Cannot regrow structure inside a protected region"), true);
+                    return;
+                }
+
                 blob.paste(server, origin);
                 storage.remove(ref.id());
             }

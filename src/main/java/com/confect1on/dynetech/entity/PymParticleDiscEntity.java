@@ -3,6 +3,7 @@ package com.confect1on.dynetech.entity;
 import net.minecraft.core.particles.ItemParticleOption;
 import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.item.ItemEntity;
@@ -12,26 +13,53 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
+import com.confect1on.dynetech.config.DTConfig;
 import com.confect1on.dynetech.item.DTItems;
-import com.confect1on.dynetech.item.PymParticleDiskItem;
+import com.confect1on.dynetech.item.PymParticleDiscItem;
 import com.confect1on.dynetech.network.DTPayloads;
 import com.confect1on.dynetech.pehkui.PehkuiCompat;
 
-public class PymParticleDiskEntity extends ThrowableItemProjectile {
+public class PymParticleDiscEntity extends ThrowableItemProjectile {
 
-    public PymParticleDiskEntity(EntityType<? extends PymParticleDiskEntity> type, Level level) {
+    public PymParticleDiscEntity(EntityType<? extends PymParticleDiscEntity> type, Level level) {
         super(type, level);
     }
 
-    public PymParticleDiskEntity(Level level, LivingEntity thrower, ItemStack stack) {
-        super(DTEntityTypes.PYM_PARTICLE_DISK.get(), thrower, level);
+    public PymParticleDiscEntity(Level level, LivingEntity thrower, ItemStack stack) {
+        super(DTEntityTypes.PYM_PARTICLE_DISC.get(), thrower, level);
         this.setItem(stack.copyWithCount(1));
     }
 
     @Override
     protected Item getDefaultItem() {
-        return DTItems.SHRINK_DISK.get();
+        return DTItems.SHRINK_DISC.get();
+    }
+
+    // Low gravity so throws barely arc (vanilla ThrowableProjectile is 0.03).
+    @Override
+    protected double getDefaultGravity() {
+        return 0.005;
+    }
+
+    // Vanilla air drag is 0.99/tick which saps ~86% of speed over 10s. We want gliding,
+    // so re-scale after super.tick to net a much gentler ~0.998/tick. Water drag (0.8)
+    // is left alone so submerged throws still slow.
+    private static final double VANILLA_AIR_DRAG = 0.99;
+    private static final double DESIRED_AIR_DRAG = 0.998;
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (this.isRemoved() || this.isInWater()) return;
+        Vec3 v = this.getDeltaMovement();
+        this.setDeltaMovement(v.scale(DESIRED_AIR_DRAG / VANILLA_AIR_DRAG));
+    }
+
+    @Override
+    protected Component getTypeName() {
+        return Component.translatable(this.getType().getDescriptionId(), DTConfig.particleBrand());
     }
 
     @Override
@@ -50,13 +78,14 @@ public class PymParticleDiskEntity extends ThrowableItemProjectile {
         if (this.level().isClientSide) return;
 
         ItemStack stack = this.getItem();
-        if (!(stack.getItem() instanceof PymParticleDiskItem disc)) return;
+        if (!(stack.getItem() instanceof PymParticleDiscItem disc)) return;
 
         var target = result.getEntity();
 
         // Special-case shrunken structures: a grow disc unshrinks them back to normal size.
         if (target instanceof com.confect1on.dynetech.entity.ShrunkenStructureEntity && disc.size > 1F) {
             PehkuiCompat.setTargetScale(target, 1.0F, 20);
+            playSizeChangeSound(target, false);
             PacketDistributor.sendToPlayersTrackingEntityAndSelf(target, new DTPayloads.SpawnPulses(target.getId()));
             return;
         }
@@ -73,6 +102,7 @@ public class PymParticleDiskEntity extends ThrowableItemProjectile {
             boolean lethal = ref != null && ref.lethal();
             if (!lethal) {
                 PehkuiCompat.setTargetScale(target, 1.0F, 20);
+                playSizeChangeSound(target, false);
             }
             PacketDistributor.sendToPlayersTrackingEntityAndSelf(target, new DTPayloads.SpawnPulses(target.getId()));
             return;
@@ -82,13 +112,14 @@ public class PymParticleDiskEntity extends ThrowableItemProjectile {
             return;
         }
 
-        float diskSize = disc.size;
+        float discSize = disc.size;
         float current = PehkuiCompat.getScale(target);
 
         // Cross-1F transitions snap back to 1F instead of flipping polarity.
-        float newSize = ((current < 1F && diskSize > 1F) || (current > 1F && diskSize < 1F)) ? 1F : diskSize;
+        float newSize = ((current < 1F && discSize > 1F) || (current > 1F && discSize < 1F)) ? 1F : discSize;
 
         PehkuiCompat.setTargetScale(target, newSize, 10);
+        playSizeChangeSound(target, newSize < current);
         PacketDistributor.sendToPlayersTrackingEntityAndSelf(target, new DTPayloads.SpawnPulses(target.getId()));
 
         if (target instanceof LivingEntity living) {
@@ -111,6 +142,18 @@ public class PymParticleDiskEntity extends ThrowableItemProjectile {
             this.level().broadcastEntityEvent(this, (byte) 3);
             this.discard();
         }
+    }
+
+    private static void playSizeChangeSound(net.minecraft.world.entity.Entity target, boolean shrink) {
+        net.minecraft.sounds.SoundEvent sound = shrink
+                ? (target.isUnderWater()
+                        ? com.confect1on.dynetech.sound.DTSounds.PYM_PARTICLE_SHRINKING_UNDERWATER.get()
+                        : com.confect1on.dynetech.sound.DTSounds.PYM_PARTICLE_SHRINKING.get())
+                : (target.isUnderWater()
+                        ? com.confect1on.dynetech.sound.DTSounds.PYM_PARTICLE_ENLARGING_UNDERWATER.get()
+                        : com.confect1on.dynetech.sound.DTSounds.PYM_PARTICLE_ENLARGING.get());
+        target.level().playSound(null, target.getX(), target.getY(), target.getZ(),
+                sound, net.minecraft.sounds.SoundSource.NEUTRAL, 1.0F, 1.0F);
     }
 
     private static net.minecraft.world.entity.EquipmentSlot pickArmorSlot(LivingEntity living) {

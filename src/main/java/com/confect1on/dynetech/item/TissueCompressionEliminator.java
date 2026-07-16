@@ -34,6 +34,7 @@ import com.confect1on.dynetech.entity.ShrunkenStructureEntity;
 import com.confect1on.dynetech.network.DTPayloads;
 import com.confect1on.dynetech.pehkui.PehkuiCompat;
 import com.confect1on.dynetech.storage.ShrunkenEntityRef;
+import com.confect1on.dynetech.storage.ShrunkenItemDetector;
 
 import java.util.List;
 
@@ -134,6 +135,18 @@ public class TissueCompressionEliminator extends Item {
     }
 
     private static void shrinkAndDrop(ServerLevel level, Player caster, Entity target, boolean lethal) {
+        // Refuse nesting: if the target is toting a shrunken item on any of its equipment slots,
+        // capturing it would let a bag-of-holding style dependency tree form inside a single ref.
+        if (target instanceof LivingEntity living) {
+            for (ItemStack held : living.getAllSlots()) {
+                if (ShrunkenItemDetector.isShrunken(held)) {
+                    caster.displayClientMessage(
+                            Component.literal("Cannot shrink entities carrying shrunken items"), true);
+                    return;
+                }
+            }
+        }
+
         CompoundTag tag = new CompoundTag();
         if (!target.saveAsPassenger(tag)) return;
 

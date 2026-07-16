@@ -16,6 +16,9 @@ import net.minecraft.world.Container;
 import net.minecraft.world.Containers;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import java.io.DataOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.EntityBlock;
@@ -60,6 +63,46 @@ public final class StructureBlob {
 
     private int indexOf(int x, int y, int z) {
         return y * size.getX() * size.getZ() + z * size.getX() + x;
+    }
+
+    /**
+     * Scans the region for container block-entities holding shrunken items (structures or
+     * entities), including nested shulker box / bundle contents. Called before capture — nesting
+     * is refused wholesale.
+     */
+    public static boolean containsShrunkenItems(ServerLevel level, BlockPos min, BlockPos max) {
+        for (int y = min.getY(); y <= max.getY(); y++) {
+            for (int z = min.getZ(); z <= max.getZ(); z++) {
+                for (int x = min.getX(); x <= max.getX(); x++) {
+                    BlockEntity be = level.getBlockEntity(new BlockPos(x, y, z));
+                    if (!(be instanceof Container container)) continue;
+                    for (int slot = 0; slot < container.getContainerSize(); slot++) {
+                        if (ShrunkenItemDetector.isShrunken(container.getItem(slot))) return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Serializes and counts bytes without allocating the full byte[]. Used to enforce the
+     * server-side blob size cap before we commit the blob to storage and clear the region.
+     */
+    public int computeSerializedSize(HolderLookup.Provider registries) {
+        ByteCountingOutputStream counter = new ByteCountingOutputStream();
+        try (DataOutputStream dos = new DataOutputStream(counter)) {
+            net.minecraft.nbt.NbtIo.write(save(registries), dos);
+        } catch (IOException e) {
+            return Integer.MAX_VALUE;
+        }
+        return counter.count;
+    }
+
+    private static final class ByteCountingOutputStream extends OutputStream {
+        int count = 0;
+        @Override public void write(int b) { count++; }
+        @Override public void write(byte[] b, int off, int len) { count += len; }
     }
 
     public static StructureBlob capture(ServerLevel level, BlockPos min, BlockPos max) {

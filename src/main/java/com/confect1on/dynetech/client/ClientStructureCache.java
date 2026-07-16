@@ -38,5 +38,6 @@ public final class ClientStructureCache {
     public static void clear() {
         CACHE.clear();
         REQUESTED.clear();
+        ClientStructureChunkAssembler.clear();
     }
 }

@@ -9,13 +9,13 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
-import com.confect1on.dynetech.entity.PymParticleDiskEntity;
+import com.confect1on.dynetech.entity.PymParticleDiscEntity;
 
-public class PymParticleDiskItem extends Item {
+public class PymParticleDiscItem extends Item {
 
     public final float size;
 
-    public PymParticleDiskItem(Properties properties, float size) {
+    public PymParticleDiscItem(Properties properties, float size) {
         super(properties);
         this.size = size;
     }
@@ -30,9 +30,11 @@ public class PymParticleDiskItem extends Item {
                 0.4F / (level.getRandom().nextFloat() * 0.4F + 0.8F));
 
         if (!level.isClientSide) {
-            PymParticleDiskEntity disk = new PymParticleDiskEntity(level, player, stack.copyWithCount(1));
-            disk.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0F, 1.5F, 1.0F);
-            level.addFreshEntity(disk);
+            PymParticleDiscEntity disc = new PymParticleDiscEntity(level, player, stack.copyWithCount(1));
+            // 1.2 speed (a touch slower than a snowball's 1.5), tiny inaccuracy so it flies
+            // where you aim. Paired with the entity's low gravity/drag = frisbee :D
+            disc.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0F, 1.2F, 0.2F);
+            level.addFreshEntity(disc);
         }
 
         player.awardStat(Stats.ITEM_USED.get(this));
