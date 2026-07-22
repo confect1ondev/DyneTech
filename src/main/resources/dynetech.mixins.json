@@ -1,0 +1,11 @@
+{
+  "required": true,
+  "package": "com.confect1on.dynetech.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "mixins": [
+    "EntityInvisibleToMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}

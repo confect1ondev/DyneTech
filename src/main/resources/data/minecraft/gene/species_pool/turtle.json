@@ -1,0 +1,10 @@
+{
+  "entries": [
+    {"perk": "dynetech:gills", "weight": 5},
+    {"perk": "dynetech:stoneskin", "weight": 5},
+    {"perk": "dynetech:vitality", "weight": 2},
+    {"perk": "dynetech:bulwark", "weight": 4},
+    {"perk": "dynetech:deepbreath", "weight": 3},
+    {"perk": "dynetech:absorption", "weight": 2}
+  ]
+}

@@ -1,0 +1,7 @@
+{
+  "entries": [
+    {"perk": "dynetech:vitality", "weight": 5},
+    {"perk": "dynetech:brawn", "weight": 5},
+    {"perk": "dynetech:bulwark", "weight": 2}
+  ]
+}

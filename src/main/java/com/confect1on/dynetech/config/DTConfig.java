@@ -22,6 +22,8 @@ public final class DTConfig {
     public static final ModConfigSpec.IntValue SYNC_CHUNK_BYTES;
     public static final ModConfigSpec.IntValue ORPHAN_TTL_SECONDS;
     public static final ModConfigSpec.IntValue GC_INTERVAL_SECONDS;
+    public static final ModConfigSpec.IntValue SPLICER_TICKS;
+    public static final ModConfigSpec.IntValue SEQUENCER_TICKS;
 
     private static final List<String> DEFAULT_BLACKLIST = List.of(
             "minecraft:bedrock",
@@ -49,6 +51,8 @@ public final class DTConfig {
         SYNC_CHUNK_BYTES = pair.getLeft().syncChunkBytes;
         ORPHAN_TTL_SECONDS = pair.getLeft().orphanTtlSeconds;
         GC_INTERVAL_SECONDS = pair.getLeft().gcIntervalSeconds;
+        SPLICER_TICKS = pair.getLeft().splicerTicks;
+        SEQUENCER_TICKS = pair.getLeft().sequencerTicks;
         SPEC = pair.getRight();
     }
 
@@ -93,6 +97,8 @@ public final class DTConfig {
         final ModConfigSpec.IntValue syncChunkBytes;
         final ModConfigSpec.IntValue orphanTtlSeconds;
         final ModConfigSpec.IntValue gcIntervalSeconds;
+        final ModConfigSpec.IntValue splicerTicks;
+        final ModConfigSpec.IntValue sequencerTicks;
 
         Data(ModConfigSpec.Builder b) {
             b.comment("Server-side settings for DyneTech.").push("server");
@@ -136,6 +142,16 @@ public final class DTConfig {
             gcIntervalSeconds = b
                     .comment("How often the orphan sweep runs (seconds). Sweep is cheap (map iteration).")
                     .defineInRange("gc_interval_seconds", 3_600, 60, Integer.MAX_VALUE);
+
+            splicerTicks = b
+                    .comment("Ticks the Gene Splicer needs to combine two loaded vials into a result.",
+                            "Default 200 = 10 seconds.")
+                    .defineInRange("splicer_ticks", 200, 20, 24_000);
+
+            sequencerTicks = b
+                    .comment("Ticks the Gene Sequencer needs to isolate one perk from a Raw sample.",
+                            "Default 80 = 4 seconds per extraction.")
+                    .defineInRange("sequencer_ticks", 80, 20, 24_000);
 
             b.pop();
         }

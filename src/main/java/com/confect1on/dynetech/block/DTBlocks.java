@@ -41,4 +41,40 @@ public class DTBlocks {
             "enlarge_pym_particles",
             () -> new PymParticleLiquidBlock(DTFluids.ENLARGE_PYM_PARTICLES.get(),
                     BlockBehaviour.Properties.ofFullCopy(Blocks.WATER).mapColor(MapColor.COLOR_LIGHT_BLUE)));
+
+    public static final DeferredBlock<GeneSequencerBlock> GENE_SEQUENCER = BLOCKS.register(
+            "gene_sequencer",
+            () -> new GeneSequencerBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.METAL)
+                    .strength(3.0F, 6.0F)
+                    .sound(SoundType.METAL)
+                    .requiresCorrectToolForDrops()));
+
+    public static final DeferredHolder<Item, BlockItem> GENE_SEQUENCER_ITEM = DTItems.ITEMS.register(
+            "gene_sequencer",
+            () -> new BlockItem(GENE_SEQUENCER.get(), new Item.Properties()));
+
+    public static final DeferredBlock<GeneSplicerBlock> GENE_SPLICER = BLOCKS.register(
+            "gene_splicer",
+            () -> new GeneSplicerBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.METAL)
+                    .strength(3.5F, 6.0F)
+                    .sound(SoundType.METAL)
+                    .requiresCorrectToolForDrops()));
+
+    public static final DeferredHolder<Item, BlockItem> GENE_SPLICER_ITEM = DTItems.ITEMS.register(
+            "gene_splicer",
+            () -> new BlockItem(GENE_SPLICER.get(), new Item.Properties()));
+
+    public static final DeferredBlock<GeneMicroscopeBlock> GENE_MICROSCOPE = BLOCKS.register(
+            "gene_microscope",
+            () -> new GeneMicroscopeBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.METAL)
+                    .strength(3.0F, 6.0F)
+                    .sound(SoundType.METAL)
+                    .requiresCorrectToolForDrops()));
+
+    public static final DeferredHolder<Item, BlockItem> GENE_MICROSCOPE_ITEM = DTItems.ITEMS.register(
+            "gene_microscope",
+            () -> new BlockItem(GENE_MICROSCOPE.get(), new Item.Properties()));
 }

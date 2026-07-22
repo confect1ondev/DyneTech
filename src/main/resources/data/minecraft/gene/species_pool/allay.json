@@ -1,0 +1,7 @@
+{
+  "entries": [
+    {"perk": "dynetech:hollowbones", "weight": 5},
+    {"perk": "dynetech:invisibility", "weight": 3},
+    {"perk": "dynetech:luck", "weight": 2}
+  ]
+}

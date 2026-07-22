@@ -16,4 +16,19 @@ public class DTBlockEntities {
             BLOCK_ENTITIES.register("structure_shrinker",
                     () -> BlockEntityType.Builder.of(StructureShrinkerBlockEntity::new, DTBlocks.STRUCTURE_SHRINKER.get())
                             .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<GeneSequencerBlockEntity>> GENE_SEQUENCER =
+            BLOCK_ENTITIES.register("gene_sequencer",
+                    () -> BlockEntityType.Builder.of(GeneSequencerBlockEntity::new, DTBlocks.GENE_SEQUENCER.get())
+                            .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<GeneSplicerBlockEntity>> GENE_SPLICER =
+            BLOCK_ENTITIES.register("gene_splicer",
+                    () -> BlockEntityType.Builder.of(GeneSplicerBlockEntity::new, DTBlocks.GENE_SPLICER.get())
+                            .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<GeneMicroscopeBlockEntity>> GENE_MICROSCOPE =
+            BLOCK_ENTITIES.register("gene_microscope",
+                    () -> BlockEntityType.Builder.of(GeneMicroscopeBlockEntity::new, DTBlocks.GENE_MICROSCOPE.get())
+                            .build(null));
 }

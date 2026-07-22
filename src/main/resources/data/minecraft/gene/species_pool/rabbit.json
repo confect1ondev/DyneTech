@@ -1,0 +1,8 @@
+{
+  "entries": [
+    {"perk": "dynetech:leap", "weight": 6},
+    {"perk": "dynetech:fleetfoot", "weight": 4},
+    {"perk": "dynetech:micro", "weight": 2},
+    {"perk": "dynetech:luck", "weight": 3}
+  ]
+}

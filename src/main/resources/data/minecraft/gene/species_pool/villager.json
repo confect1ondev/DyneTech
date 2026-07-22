@@ -1,0 +1,7 @@
+{
+  "entries": [
+    {"perk": "dynetech:miner", "weight": 3},
+    {"perk": "dynetech:reachminer", "weight": 2},
+    {"perk": "dynetech:luck", "weight": 2}
+  ]
+}

@@ -17,9 +17,12 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import com.confect1on.dynetech.DyneTech;
 import com.confect1on.dynetech.blockentity.StructureShrinkerBlockEntity;
 import com.confect1on.dynetech.config.DTConfig;
+import com.confect1on.dynetech.item.InjectionGunItem;
 import com.confect1on.dynetech.menu.StructureShrinkerMenu;
 import com.confect1on.dynetech.storage.ShrunkenStructureStorage;
 import com.confect1on.dynetech.storage.StructureBlob;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.item.ItemStack;
 
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
@@ -73,6 +76,23 @@ public final class DTPayloads {
                 SpawnPulses.STREAM_CODEC,
                 (payload, ctx) -> ctx.enqueueWork(() ->
                         com.confect1on.dynetech.client.DiscoPulseManager.trigger(payload.entityId())));
+
+        registrar.playToServer(
+                InjectSelfWithGun.TYPE,
+                InjectSelfWithGun.STREAM_CODEC,
+                (payload, ctx) -> ctx.enqueueWork(() -> {
+                    var player = ctx.player();
+                    // Try main hand first, then off-hand — the client should only have sent this
+                    // when the gun is actually in one of them, but be defensive.
+                    for (InteractionHand hand : InteractionHand.values()) {
+                        ItemStack held = player.getItemInHand(hand);
+                        if (held.getItem() instanceof InjectionGunItem) {
+                            InjectionGunItem.fireAtSelf(player, held);
+                            return;
+                        }
+                    }
+                }));
+
     }
 
     /**
@@ -120,6 +140,20 @@ public final class DTPayloads {
         public static final Type<RequestStructure> TYPE = new Type<>(DyneTech.id("request_structure"));
         public static final StreamCodec<FriendlyByteBuf, RequestStructure> STREAM_CODEC =
                 StreamCodec.composite(UUIDUtil.STREAM_CODEC, RequestStructure::id, RequestStructure::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+
+    /**
+     * Client → server signal for "the player left-clicked empty air while sneaking with a
+     * loaded injection gun." The client can't apply perks to the server-authoritative player
+     * state directly, so it delegates via this trigger.
+     */
+    public record InjectSelfWithGun() implements CustomPacketPayload {
+        public static final Type<InjectSelfWithGun> TYPE = new Type<>(DyneTech.id("inject_self_with_gun"));
+        public static final StreamCodec<FriendlyByteBuf, InjectSelfWithGun> STREAM_CODEC =
+                StreamCodec.unit(new InjectSelfWithGun());
 
         @Override
         public Type<? extends CustomPacketPayload> type() { return TYPE; }

@@ -1,0 +1,8 @@
+{
+  "entries": [
+    {"perk": "dynetech:leap", "weight": 6},
+    {"perk": "dynetech:brawn", "weight": 3},
+    {"perk": "dynetech:cushion", "weight": 2},
+    {"perk": "dynetech:vertigo_defect", "weight": 2}
+  ]
+}

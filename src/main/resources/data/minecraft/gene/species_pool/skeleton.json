@@ -1,0 +1,8 @@
+{
+  "entries": [
+    {"perk": "dynetech:fleetfoot", "weight": 3},
+    {"perk": "dynetech:nocturnal", "weight": 4},
+    {"perk": "dynetech:longarm", "weight": 2},
+    {"perk": "dynetech:photophobia_defect", "weight": 2}
+  ]
+}

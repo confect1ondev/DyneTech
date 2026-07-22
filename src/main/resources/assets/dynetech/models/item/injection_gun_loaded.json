@@ -1,0 +1,7 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "dynetech:item/injection_gun",
+    "layer1": "dynetech:item/injection_gun_chamber"
+  }
+}

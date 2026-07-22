@@ -51,6 +51,15 @@ public class DTItems {
                     DTFluids.ENLARGE_PYM_PARTICLES.get(),
                     new Item.Properties().craftRemainder(Items.BUCKET).stacksTo(1)));
 
+    public static final DeferredHolder<Item, GeneVialItem> GENE_VIAL =
+            ITEMS.register("gene_vial", () -> new GeneVialItem(new Item.Properties().stacksTo(16)));
+
+    public static final DeferredHolder<Item, InjectionGunItem> INJECTION_GUN =
+            ITEMS.register("injection_gun", () -> new InjectionGunItem(new Item.Properties().stacksTo(1)));
+
+    public static final DeferredHolder<Item, PerkCyclerItem> PERK_CYCLER =
+            ITEMS.register("perk_cycler", () -> new PerkCyclerItem(new Item.Properties().stacksTo(1)));
+
     public static final DeferredRegister<CreativeModeTab> CREATIVE_TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, DyneTech.MODID);
 
@@ -67,6 +76,12 @@ public class DTItems {
                 output.accept(TISSUE_COMPRESSION_ELIMINATOR.get());
                 output.accept(SHRINK_PYM_PARTICLE_BUCKET.get());
                 output.accept(ENLARGE_PYM_PARTICLE_BUCKET.get());
+                output.accept(GENE_VIAL.get());
+                output.accept(INJECTION_GUN.get());
+                output.accept(DTBlocks.GENE_SEQUENCER.get());
+                output.accept(DTBlocks.GENE_SPLICER.get());
+                output.accept(DTBlocks.GENE_MICROSCOPE.get());
+                // PerkCycler is a dev-only cycler: reachable via /give but not shown in the tab.
             })
             .build());
 }

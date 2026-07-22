@@ -8,12 +8,19 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.client.extensions.common.IClientFluidTypeExtensions;
 import net.neoforged.neoforge.client.extensions.common.IClientItemExtensions;
 import net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsEvent;
 import com.confect1on.dynetech.DyneTech;
+import com.confect1on.dynetech.gene.Perk;
+import com.confect1on.dynetech.gene.Perks;
+import com.confect1on.dynetech.gene.VialContents;
+import com.confect1on.dynetech.gene.VialState;
+import com.confect1on.dynetech.item.GeneVialItem;
+import com.confect1on.dynetech.item.InjectionGunItem;
 import com.confect1on.dynetech.blockentity.DTBlockEntities;
 import com.confect1on.dynetech.component.DTDataComponents;
 import com.confect1on.dynetech.client.renderer.PymParticleDiscRenderer;
@@ -22,11 +29,18 @@ import com.confect1on.dynetech.client.renderer.ShrunkenEntityEntityRenderer;
 import com.confect1on.dynetech.client.renderer.ShrunkenStructureBEWLR;
 import com.confect1on.dynetech.client.renderer.ShrunkenStructureEntityRenderer;
 import com.confect1on.dynetech.client.renderer.StructureShrinkerBlockEntityRenderer;
+import com.confect1on.dynetech.client.screen.GeneMicroscopeScreen;
+import com.confect1on.dynetech.client.screen.GeneSequencerScreen;
+import com.confect1on.dynetech.client.screen.GeneSplicerScreen;
 import com.confect1on.dynetech.client.screen.StructureShrinkerScreen;
 import com.confect1on.dynetech.entity.DTEntityTypes;
 import com.confect1on.dynetech.fluid.DTFluids;
 import com.confect1on.dynetech.item.DTItems;
 import com.confect1on.dynetech.menu.DTMenus;
+import com.confect1on.dynetech.network.DTPayloads;
+import net.minecraft.world.InteractionHand;
+import net.neoforged.neoforge.event.entity.player.PlayerInteractEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 public class DTClient {
 
@@ -44,6 +58,9 @@ public class DTClient {
         @SubscribeEvent
         public static void registerScreens(RegisterMenuScreensEvent event) {
             event.register(DTMenus.STRUCTURE_SHRINKER.get(), StructureShrinkerScreen::new);
+            event.register(DTMenus.GENE_SEQUENCER.get(), GeneSequencerScreen::new);
+            event.register(DTMenus.GENE_SPLICER.get(), GeneSplicerScreen::new);
+            event.register(DTMenus.GENE_MICROSCOPE.get(), GeneMicroscopeScreen::new);
         }
 
         // Lazy holder — BEWLR touches Minecraft.getInstance().getBlockEntityRenderDispatcher(),
@@ -53,15 +70,91 @@ public class DTClient {
 
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
-            // Model override predicate: `dynetech:lethal` returns 1.0 for a lethal-mode TCE so
-            // its item model swaps to the red-tip variant declared in the JSON overrides list.
-            event.enqueueWork(() -> ItemProperties.register(
-                    DTItems.TISSUE_COMPRESSION_ELIMINATOR.get(),
-                    DyneTech.id("lethal"),
-                    (stack, level, entity, seed) -> {
-                        Boolean v = stack.get(DTDataComponents.TCE_LETHAL.get());
-                        return v != null && v ? 1.0F : 0.0F;
-                    }));
+            event.enqueueWork(() -> {
+                // Lethal-mode TCE swaps to a red-tip model via this override.
+                ItemProperties.register(
+                        DTItems.TISSUE_COMPRESSION_ELIMINATOR.get(),
+                        DyneTech.id("lethal"),
+                        (stack, level, entity, seed) -> {
+                            Boolean v = stack.get(DTDataComponents.TCE_LETHAL.get());
+                            return v != null && v ? 1.0F : 0.0F;
+                        });
+
+                // Gene Vial variant: continuous 0-1 float that overrides route to
+                //   0.15 = blood, 0.25 = low-quality helix, 0.45 = mid, 0.75 = high.
+                ItemProperties.register(
+                        DTItems.GENE_VIAL.get(),
+                        DyneTech.id("variant"),
+                        (stack, level, entity, seed) -> vialVariant(GeneVialItem.getContents(stack)));
+
+                // Injection Gun chamber: 0.0 when nothing's loaded (base model with an empty
+                // chamber slot), 0.1 when any vial is loaded (loaded model that adds a tinted
+                // overlay in the chamber).
+                ItemProperties.register(
+                        DTItems.INJECTION_GUN.get(),
+                        DyneTech.id("chamber"),
+                        (stack, level, entity, seed) ->
+                                InjectionGunItem.hasLoadedComponent(stack) ? 0.1F : 0.0F);
+            });
+        }
+
+        private static float vialVariant(VialContents c) {
+            return switch (c.state()) {
+                case EMPTY -> 0.0F;
+                case RAW -> 0.2F;
+                case ISOLATED -> {
+                    float q = c.maxQuality();
+                    if (q >= 0.75F) yield 0.9F;
+                    if (q >= 0.45F) yield 0.6F;
+                    yield 0.3F;
+                }
+                // Serum swaps to a bespoke 3-layer model (glass + blood fill + helix). The 0.99
+                // predicate is picked last, so it only matches serum specifically.
+                case SERUM -> 0.99F;
+            };
+        }
+
+        /**
+         * Layer0 (glass base) is never tinted so the vial shape always reads correctly.
+         * Layer1 (helix) is tinted by the first-carried perk's declared color — this is
+         * the vanilla-potion-style recolor path the user asked for.
+         */
+        @SubscribeEvent
+        public static void registerItemColors(RegisterColorHandlersEvent.Item event) {
+            event.register((stack, tintIndex) -> {
+                VialContents c = GeneVialItem.getContents(stack);
+                if (tintIndex == 0) return 0xFFFFFFFF;
+                if (tintIndex == 1) {
+                    // Layer1 is either the isolated helix (isolated model) or the blood fill
+                    // (raw / serum). Baked-red fills need no tint; helix takes the gene color.
+                    if (c.state() == VialState.RAW || c.state() == VialState.SERUM) return 0xFFFFFFFF;
+                    if (c.perks().isEmpty()) return 0xFFFFFFFF;
+                    Perk perk = Perks.get(c.perks().get(0).perkId());
+                    return perk != null ? (0xFF000000 | perk.color()) : 0xFFFFFFFF;
+                }
+                if (tintIndex == 2) {
+                    // Only the serum model exposes a layer2 — the helix overlay on top of blood.
+                    if (c.state() != VialState.SERUM || c.perks().isEmpty()) return 0xFFFFFFFF;
+                    Perk perk = Perks.get(c.perks().get(0).perkId());
+                    return perk != null ? (0xFF000000 | perk.color()) : 0xFFFFFFFF;
+                }
+                return 0xFFFFFFFF;
+            }, DTItems.GENE_VIAL.get());
+
+            // Injection gun chamber overlay: layer1 gets tinted by the loaded vial's state.
+            event.register((stack, tintIndex) -> {
+                if (tintIndex != 1) return 0xFFFFFFFF;
+                VialContents c = InjectionGunItem.getLoaded(stack);
+                return switch (c.state()) {
+                    case EMPTY -> 0xFFA8DBE8;                  // glassy blue for an empty vial
+                    case RAW -> 0xFFB02020;                    // blood red
+                    case ISOLATED, SERUM -> {
+                        if (c.perks().isEmpty()) yield 0xFFCCCCCC;
+                        Perk perk = Perks.get(c.perks().get(0).perkId());
+                        yield perk != null ? (0xFF000000 | perk.color()) : 0xFFCCCCCC;
+                    }
+                };
+            }, DTItems.INJECTION_GUN.get());
         }
 
         @SubscribeEvent
@@ -127,6 +220,24 @@ public class DTClient {
         @SubscribeEvent
         public static void onLoggedIn(ClientPlayerNetworkEvent.LoggingIn e) {
             ClientStructureCache.clear();
+        }
+
+        /**
+         * "Sneak + left-click on nothing" with a loaded Injection Gun sends a payload the server
+         * handles by calling {@link InjectionGunItem#fireAtSelf}. Vanilla doesn't ship an
+         * interact packet for empty-swings, so the client has to signal server intent explicitly.
+         */
+        @SubscribeEvent
+        public static void onLeftClickEmpty(PlayerInteractEvent.LeftClickEmpty e) {
+            var player = e.getEntity();
+            if (!player.isShiftKeyDown()) return;
+            for (InteractionHand hand : InteractionHand.values()) {
+                var held = player.getItemInHand(hand);
+                if (held.getItem() instanceof InjectionGunItem && InjectionGunItem.isFireable(held)) {
+                    PacketDistributor.sendToServer(new DTPayloads.InjectSelfWithGun());
+                    return;
+                }
+            }
         }
     }
 }

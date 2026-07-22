@@ -1,0 +1,13 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "dynetech:item/gene_vial"
+  },
+  "overrides": [
+    { "predicate": { "dynetech:variant": 0.15 }, "model": "dynetech:item/gene_vial_blood" },
+    { "predicate": { "dynetech:variant": 0.25 }, "model": "dynetech:item/gene_vial_gene_low" },
+    { "predicate": { "dynetech:variant": 0.45 }, "model": "dynetech:item/gene_vial_gene_mid" },
+    { "predicate": { "dynetech:variant": 0.75 }, "model": "dynetech:item/gene_vial_gene_high" },
+    { "predicate": { "dynetech:variant": 0.99 }, "model": "dynetech:item/gene_vial_serum" }
+  ]
+}

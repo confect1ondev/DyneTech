@@ -1,0 +1,8 @@
+{
+  "entries": [
+    {"perk": "dynetech:stoneskin", "weight": 3},
+    {"perk": "dynetech:fleetfoot", "weight": 2},
+    {"perk": "dynetech:explosive_death", "weight": 4},
+    {"perk": "dynetech:static_defect", "weight": 3}
+  ]
+}

@@ -6,6 +6,9 @@ import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import com.confect1on.dynetech.DyneTech;
+import com.confect1on.dynetech.blockentity.GeneMicroscopeBlockEntity;
+import com.confect1on.dynetech.blockentity.GeneSequencerBlockEntity;
+import com.confect1on.dynetech.blockentity.GeneSplicerBlockEntity;
 import com.confect1on.dynetech.blockentity.StructureShrinkerBlockEntity;
 
 public class DTMenus {
@@ -19,5 +22,32 @@ public class DTMenus {
                 var be = inv.player.level().getBlockEntity(pos);
                 return new StructureShrinkerMenu(id, inv,
                         be instanceof StructureShrinkerBlockEntity s ? s : null);
+            }));
+
+    public static final DeferredHolder<MenuType<?>, MenuType<GeneSequencerMenu>> GENE_SEQUENCER =
+            MENUS.register("gene_sequencer", () -> IMenuTypeExtension.create((id, inv, buf) -> {
+                var pos = buf.readBlockPos();
+                var be = inv.player.level().getBlockEntity(pos);
+                return be instanceof GeneSequencerBlockEntity s
+                        ? new GeneSequencerMenu(id, inv, s)
+                        : new GeneSequencerMenu(id, inv);
+            }));
+
+    public static final DeferredHolder<MenuType<?>, MenuType<GeneSplicerMenu>> GENE_SPLICER =
+            MENUS.register("gene_splicer", () -> IMenuTypeExtension.create((id, inv, buf) -> {
+                var pos = buf.readBlockPos();
+                var be = inv.player.level().getBlockEntity(pos);
+                return be instanceof GeneSplicerBlockEntity s
+                        ? new GeneSplicerMenu(id, inv, s)
+                        : new GeneSplicerMenu(id, inv);
+            }));
+
+    public static final DeferredHolder<MenuType<?>, MenuType<GeneMicroscopeMenu>> GENE_MICROSCOPE =
+            MENUS.register("gene_microscope", () -> IMenuTypeExtension.create((id, inv, buf) -> {
+                var pos = buf.readBlockPos();
+                var be = inv.player.level().getBlockEntity(pos);
+                return be instanceof GeneMicroscopeBlockEntity s
+                        ? new GeneMicroscopeMenu(id, inv, s)
+                        : new GeneMicroscopeMenu(id, inv);
             }));
 }

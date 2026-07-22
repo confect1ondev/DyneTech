@@ -1,0 +1,7 @@
+{
+  "entries": [
+    {"perk": "dynetech:fireproof", "weight": 3},
+    {"perk": "dynetech:brawn", "weight": 3},
+    {"perk": "dynetech:bane_of_undead", "weight": 3}
+  ]
+}

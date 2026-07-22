@@ -1,0 +1,5 @@
+{
+  "variants": {
+    "": { "model": "dynetech:block/gene_sequencer" }
+  }
+}
