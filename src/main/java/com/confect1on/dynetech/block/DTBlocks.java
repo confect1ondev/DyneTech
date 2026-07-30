@@ -66,6 +66,18 @@ public class DTBlocks {
             "gene_splicer",
             () -> new BlockItem(GENE_SPLICER.get(), new Item.Properties()));
 
+    public static final DeferredBlock<CryoPreservatorBlock> CRYO_PRESERVATOR = BLOCKS.register(
+            "cryo_preservator",
+            () -> new CryoPreservatorBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.ICE)
+                    .strength(3.0F, 6.0F)
+                    .sound(SoundType.GLASS)
+                    .requiresCorrectToolForDrops()));
+
+    public static final DeferredHolder<Item, BlockItem> CRYO_PRESERVATOR_ITEM = DTItems.ITEMS.register(
+            "cryo_preservator",
+            () -> new BlockItem(CRYO_PRESERVATOR.get(), new Item.Properties()));
+
     public static final DeferredBlock<GeneMicroscopeBlock> GENE_MICROSCOPE = BLOCKS.register(
             "gene_microscope",
             () -> new GeneMicroscopeBlock(BlockBehaviour.Properties.of()

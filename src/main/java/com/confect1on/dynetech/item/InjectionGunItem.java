@@ -112,7 +112,7 @@ public class InjectionGunItem extends Item {
         // Load path: gun empty, off-hand holds an acceptable vial.
         if (!gunHasAmmo && other.getItem() instanceof GeneVialItem) {
             VialContents inOther = GeneVialItem.getContents(other);
-            if (canLoad(inOther.state())) {
+            if (canLoad(inOther)) {
                 if (!level.isClientSide) {
                     setLoaded(gun, inOther);
                     other.shrink(1);
@@ -188,7 +188,7 @@ public class InjectionGunItem extends Item {
             return true;
         }
 
-        if (loaded.state() == VialState.SERUM) {
+        if (PerkLifecycle.isInjectable(loaded)) {
             if (!level.isClientSide) {
                 PerkLifecycle.inject(target, loaded, level.random);
                 setLoaded(gun, VialContents.EMPTY);
@@ -206,16 +206,16 @@ public class InjectionGunItem extends Item {
     /** Client can call this to know whether the gun should intercept a shift+attack-empty. */
     public static boolean isFireable(ItemStack stack) {
         if (!stack_has_loaded_component(stack)) return false;
-        VialState s = getLoaded(stack).state();
-        // Empty triggers the sample-self path (into Raw); Serum triggers the actual injection.
-        return s == VialState.EMPTY || s == VialState.SERUM;
+        VialContents loaded = getLoaded(stack);
+        // Empty triggers the sample-self path (into Raw); injectable states trigger the shot.
+        return loaded.state() == VialState.EMPTY || PerkLifecycle.isInjectable(loaded);
     }
 
-    private static boolean canLoad(VialState state) {
-        // Only Empty (as a re-fillable container) and Serum (as ammo the gun can fire). Isolated
-        // vials must be spliced back into blood via the splicer before they'll load - otherwise
-        // the gun accepts them but the fire path has nothing to do, leaving dead ammo.
-        return state == VialState.EMPTY || state == VialState.SERUM;
+    private static boolean canLoad(VialContents contents) {
+        // Empty (as a re-fillable container) and anything the injector will actually act on
+        // (serum states + player-blood RAW). Isolated vials still need the splicer first;
+        // accepting them would leave dead ammo the fire path can't do anything with.
+        return contents.state() == VialState.EMPTY || PerkLifecycle.isInjectable(contents);
     }
 
     @Override

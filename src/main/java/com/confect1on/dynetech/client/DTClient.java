@@ -29,6 +29,7 @@ import com.confect1on.dynetech.client.renderer.ShrunkenEntityEntityRenderer;
 import com.confect1on.dynetech.client.renderer.ShrunkenStructureBEWLR;
 import com.confect1on.dynetech.client.renderer.ShrunkenStructureEntityRenderer;
 import com.confect1on.dynetech.client.renderer.StructureShrinkerBlockEntityRenderer;
+import com.confect1on.dynetech.client.screen.CryoPreservatorScreen;
 import com.confect1on.dynetech.client.screen.GeneMicroscopeScreen;
 import com.confect1on.dynetech.client.screen.GeneSequencerScreen;
 import com.confect1on.dynetech.client.screen.GeneSplicerScreen;
@@ -61,6 +62,7 @@ public class DTClient {
             event.register(DTMenus.GENE_SEQUENCER.get(), GeneSequencerScreen::new);
             event.register(DTMenus.GENE_SPLICER.get(), GeneSplicerScreen::new);
             event.register(DTMenus.GENE_MICROSCOPE.get(), GeneMicroscopeScreen::new);
+            event.register(DTMenus.CRYO_PRESERVATOR.get(), CryoPreservatorScreen::new);
         }
 
         // Lazy holder — BEWLR touches Minecraft.getInstance().getBlockEntityRenderDispatcher(),
@@ -108,9 +110,9 @@ public class DTClient {
                     if (q >= 0.45F) yield 0.6F;
                     yield 0.3F;
                 }
-                // Serum swaps to a bespoke 3-layer model (glass + blood fill + helix). The 0.99
-                // predicate is picked last, so it only matches serum specifically.
-                case SERUM -> 0.99F;
+                // Serum + bound serum share the 3-layer model; the icy tint on the bound variant
+                // is driven by the item color handler below, not by a separate predicate value.
+                case SERUM, BOUND_SERUM -> 0.99F;
             };
         }
 
@@ -126,15 +128,18 @@ public class DTClient {
                 if (tintIndex == 0) return 0xFFFFFFFF;
                 if (tintIndex == 1) {
                     // Layer1 is either the isolated helix (isolated model) or the blood fill
-                    // (raw / serum). Baked-red fills need no tint; helix takes the gene color.
+                    // (raw / serum / bound). Bound serums render with a pale cyan cast so they
+                    // read as frozen at a glance.
+                    if (c.state() == VialState.BOUND_SERUM) return 0xFFAEE6F7;
                     if (c.state() == VialState.RAW || c.state() == VialState.SERUM) return 0xFFFFFFFF;
                     if (c.perks().isEmpty()) return 0xFFFFFFFF;
                     Perk perk = Perks.get(c.perks().get(0).perkId());
                     return perk != null ? (0xFF000000 | perk.color()) : 0xFFFFFFFF;
                 }
                 if (tintIndex == 2) {
-                    // Only the serum model exposes a layer2 — the helix overlay on top of blood.
-                    if (c.state() != VialState.SERUM || c.perks().isEmpty()) return 0xFFFFFFFF;
+                    // Layer2 is the helix overlay on the serum-shaped model. Bound serums use it
+                    // too so the donor's gene color still shows through.
+                    if (!c.state().isSerum() || c.perks().isEmpty()) return 0xFFFFFFFF;
                     Perk perk = Perks.get(c.perks().get(0).perkId());
                     return perk != null ? (0xFF000000 | perk.color()) : 0xFFFFFFFF;
                 }
@@ -148,6 +153,7 @@ public class DTClient {
                 return switch (c.state()) {
                     case EMPTY -> 0xFFA8DBE8;                  // glassy blue for an empty vial
                     case RAW -> 0xFFB02020;                    // blood red
+                    case BOUND_SERUM -> 0xFFAEE6F7;            // frozen cast
                     case ISOLATED, SERUM -> {
                         if (c.perks().isEmpty()) yield 0xFFCCCCCC;
                         Perk perk = Perks.get(c.perks().get(0).perkId());

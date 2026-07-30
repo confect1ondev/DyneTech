@@ -530,7 +530,8 @@ public final class Gene {
                 Optional.of(PerkCondition.SNEAKING));
         VialContents isolated = VialContents.isolated(withCondition, Optional.empty(), Optional.empty(), Optional.empty());
 
-        VialContents rawSelf = VialContents.rawPlayerBlood(player.getUUID(), "Alice", playerType, java.util.List.of());
+        VialContents rawSelf = VialContents.rawPlayerBlood(player.getUUID(), "Alice", playerType,
+                java.util.List.of(), farFutureExpiry(helper));
         VialContents serum = GeneOps.splice(rawSelf, isolated).orElseThrow();
         helper.assertTrue(serum.perks().get(0).condition().equals(Optional.of(PerkCondition.SNEAKING)),
                 "splice must preserve the SNEAKING condition on the perk");
@@ -620,7 +621,8 @@ public final class Gene {
         ResourceLocation playerType = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE
                 .getKey(net.minecraft.world.entity.EntityType.PLAYER);
 
-        VialContents rawSelf = VialContents.rawPlayerBlood(selfId, "Alice", playerType, java.util.List.of());
+        VialContents rawSelf = VialContents.rawPlayerBlood(selfId, "Alice", playerType,
+                java.util.List.of(), farFutureExpiry(helper));
         PerkEntry reach = new PerkEntry(Perks.REACHMINER.getId(), 1.0F, Optional.empty(), Optional.empty());
         VialContents isolated = VialContents.isolated(reach, Optional.empty(), Optional.empty(), Optional.empty());
 
@@ -1331,7 +1333,7 @@ public final class Gene {
     public static void sequencer_refuses_player_blood_input(GameTestHelper helper) {
         ensureBootstrapped();
         VialContents playerBlood = VialContents.rawPlayerBlood(UUID.randomUUID(), "Alice",
-                BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.PLAYER), List.of());
+                BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.PLAYER), List.of(), farFutureExpiry(helper));
 
         var be = new com.confect1on.dynetech.blockentity.GeneSequencerBlockEntity(
                 new BlockPos(0, 0, 0), com.confect1on.dynetech.block.DTBlocks.GENE_SEQUENCER.get().defaultBlockState());
@@ -1473,6 +1475,437 @@ public final class Gene {
         helper.assertTrue(afterFire.state() == VialState.EMPTY,
                 "gun should hold an EMPTY container after firing a SERUM");
         player.discard();
+        helper.succeed();
+    }
+
+    // ============================================================================
+    //  Cryo Preservator - E2E through a real placed block
+    // ============================================================================
+
+    private static final BlockPos CRYO_POS = new BlockPos(1, 1, 1);
+
+    /** Places the real block, returns its live block entity from the world. */
+    private static com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity placeCryo(GameTestHelper helper) {
+        helper.setBlock(CRYO_POS, com.confect1on.dynetech.block.DTBlocks.CRYO_PRESERVATOR.get());
+        var be = helper.getLevel().getBlockEntity(helper.absolutePos(CRYO_POS));
+        helper.assertTrue(be instanceof com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity,
+                "expected a CryoPreservatorBlockEntity at " + CRYO_POS + ", got " + be);
+        return (com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity) be;
+    }
+
+    private static void tickCryo(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity be,
+                                 GameTestHelper helper, int times) {
+        for (int i = 0; i < times; i++) be.serverTick(helper.getLevel());
+    }
+
+    /** Shared helper: build a player-blood vial with a fresh-enough expiry for tests. */
+    private static VialContents playerBloodWith(GameTestHelper helper, UUID donor, String name, List<PerkEntry> snapshot) {
+        ResourceLocation playerType = BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.PLAYER);
+        return VialContents.rawPlayerBlood(donor, name, playerType, snapshot, farFutureExpiry(helper));
+    }
+
+    /** Timestamp that won't elapse before any test ends; use whenever a test doesn't care about decay. */
+    private static long farFutureExpiry(GameTestHelper helper) {
+        return helper.getLevel().getGameTime() + 24_000L;
+    }
+
+    /**
+     * Ice dropped into the input slot must stay visible to the player when there's no vial to
+     * preserve. Nothing is silently teleported into an invisible buffer.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void cryo_ice_stays_in_slot_without_vial(GameTestHelper helper) {
+        ensureBootstrapped();
+        var be = placeCryo(helper);
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_A,
+                new ItemStack(net.minecraft.world.item.Items.ICE, 32));
+
+        tickCryo(be, helper, 5);
+
+        helper.assertTrue(be.iceCount() == 32,
+                "ice must remain in the input slot with no vial to preserve, got " + be.iceCount());
+        helper.succeed();
+    }
+
+    /** All four ice slots together must hold the full 256-item reservoir capacity. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void cryo_ice_grid_holds_up_to_four_stacks(GameTestHelper helper) {
+        ensureBootstrapped();
+        var be = placeCryo(helper);
+        for (int slot : com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.ICE_SLOTS) {
+            be.inventory().setItem(slot, new ItemStack(net.minecraft.world.item.Items.ICE, 64));
+        }
+
+        tickCryo(be, helper, 2);
+
+        helper.assertTrue(be.iceCount() == com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.MAX_ICE_STORAGE,
+                "four filled ice slots must total the reservoir capacity, got " + be.iceCount());
+        helper.succeed();
+    }
+
+    /**
+     * With a valid vial and one ice in the reservoir, a full CRYO_ICE_INTERVAL_TICKS of
+     * preservation consumes exactly one ice. This is the wall-clock burn rate.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 200)
+    public static void cryo_burns_one_ice_per_interval(GameTestHelper helper) {
+        ensureBootstrapped();
+        var be = placeCryo(helper);
+        VialContents template = playerBloodWith(helper, UUID.randomUUID(), "Alice",
+                List.of(new PerkEntry(Perks.BRAWN.getId(), 1.0F, Optional.empty(), Optional.empty())));
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD,
+                com.confect1on.dynetech.item.GeneVialItem.withContents(template));
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_A,
+                new ItemStack(net.minecraft.world.item.Items.ICE, 3));
+
+        // The priming tick pulls all 3 ice into the reservoir AND starts burning the first
+        // one, so total ice equivalents = iceStored (2) + one in progress = 3.
+        int interval = com.confect1on.dynetech.config.DTConfig.CRYO_ICE_INTERVAL_TICKS.get();
+        tickCryo(be, helper, interval);
+
+        helper.assertTrue(be.iceCount() == 2,
+                "one ice should have been consumed after INTERVAL ticks total, got " + be.iceCount());
+        helper.assertTrue(be.iceProgress() == 0,
+                "burn should have just cleanly finished, got iceProgress=" + be.iceProgress());
+        helper.succeed();
+    }
+
+    /**
+     * Every server tick advances the vial's expiry by one tick while preservation is active.
+     * Over N ticks the delta should be exactly N.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 200)
+    public static void cryo_freezes_vial_expiry_while_preserving(GameTestHelper helper) {
+        ensureBootstrapped();
+        var be = placeCryo(helper);
+        VialContents template = playerBloodWith(helper, UUID.randomUUID(), "Alice",
+                List.of(new PerkEntry(Perks.VITALITY.getId(), 1.0F, Optional.empty(), Optional.empty())));
+        long startExpiry = template.expiresAtGameTime().orElseThrow();
+
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD,
+                com.confect1on.dynetech.item.GeneVialItem.withContents(template));
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_A,
+                new ItemStack(net.minecraft.world.item.Items.ICE, 4));
+
+        int ticks = 150;
+        tickCryo(be, helper, ticks);
+
+        VialContents after = com.confect1on.dynetech.item.GeneVialItem.getContents(
+                be.inventory().getItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD));
+        long endExpiry = after.expiresAtGameTime().orElseThrow();
+        helper.assertTrue(endExpiry - startExpiry == ticks,
+                "expiry must advance one tick per preservation tick, delta = " + (endExpiry - startExpiry));
+        helper.succeed();
+    }
+
+    /**
+     * If a valid vial and full reservoir are already in place and the game clock jumps forward
+     * (simulating a chunk unload), the very next tick must catch up in a single call: it should
+     * consume the right amount of ice and push the vial expiry forward by the offline delta.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void cryo_catches_up_after_chunk_reload(GameTestHelper helper) {
+        ensureBootstrapped();
+        var be = placeCryo(helper);
+        VialContents template = playerBloodWith(helper, UUID.randomUUID(), "Alice",
+                List.of(new PerkEntry(Perks.VITALITY.getId(), 1.0F, Optional.empty(), Optional.empty())));
+        long startExpiry = template.expiresAtGameTime().orElseThrow();
+
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD,
+                com.confect1on.dynetech.item.GeneVialItem.withContents(template));
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_A,
+                new ItemStack(net.minecraft.world.item.Items.ICE, 3));
+        // Priming: ice moves into the reservoir and the first ice starts burning (iceStored=2,
+        // iceProgress=1). This also sets lastTickGameTime so the next tick can compute a delta.
+        tickCryo(be, helper, 1);
+        helper.assertTrue(be.iceCount() == 2 && be.iceProgress() == 1,
+                "priming tick should load ice and start the first burn, got iceStored="
+                        + be.iceCount() + " iceProgress=" + be.iceProgress());
+
+        int interval = com.confect1on.dynetech.config.DTConfig.CRYO_ICE_INTERVAL_TICKS.get();
+        // Simulate an unloaded chunk: the world's game time keeps advancing while the BE
+        // doesn't tick. Fake this by round-tripping the BE through save + load with a synthetic
+        // gap in the persisted last-tick timestamp.
+        long offlineTicks = (long) interval + interval / 2;
+        var registries = helper.getLevel().registryAccess();
+        net.minecraft.nbt.CompoundTag saved = be.getUpdateTag(registries);
+        saved.putLong("LastTick", helper.getLevel().getGameTime() - offlineTicks);
+        be.loadWithComponents(saved, registries);
+
+        tickCryo(be, helper, 1);
+
+        helper.assertTrue(be.iceCount() == 1,
+                "one ice should be fully consumed by the catch-up, got iceStored=" + be.iceCount());
+        helper.assertTrue(be.iceProgress() >= interval / 2 - 2 && be.iceProgress() <= interval / 2 + 2,
+                "second ice should be half-burnt, got iceProgress=" + be.iceProgress());
+
+        VialContents after = com.confect1on.dynetech.item.GeneVialItem.getContents(
+                be.inventory().getItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD));
+        long endExpiry = after.expiresAtGameTime().orElseThrow();
+        long delta = endExpiry - startExpiry;
+        helper.assertTrue(delta >= offlineTicks && delta <= offlineTicks + 2,
+                "vial expiry should have caught up by the offline delta, got delta=" + delta);
+        helper.succeed();
+    }
+
+    /**
+     * Reservoir exhausted: preservation stops. The vial's expiry no longer advances after the
+     * last ice is spent.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 60)
+    public static void cryo_stops_preserving_when_ice_runs_out(GameTestHelper helper) {
+        ensureBootstrapped();
+        var be = placeCryo(helper);
+        VialContents template = playerBloodWith(helper, UUID.randomUUID(), "Alice",
+                List.of(new PerkEntry(Perks.VITALITY.getId(), 1.0F, Optional.empty(), Optional.empty())));
+        long startExpiry = template.expiresAtGameTime().orElseThrow();
+
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD,
+                com.confect1on.dynetech.item.GeneVialItem.withContents(template));
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_A,
+                new ItemStack(net.minecraft.world.item.Items.ICE, 1));
+
+        int interval = com.confect1on.dynetech.config.DTConfig.CRYO_ICE_INTERVAL_TICKS.get();
+        tickCryo(be, helper, 1);
+        tickCryo(be, helper, interval);
+        helper.assertTrue(be.iceCount() == 0, "reservoir should be empty after burning the sole ice");
+
+        VialContents afterBurn = com.confect1on.dynetech.item.GeneVialItem.getContents(
+                be.inventory().getItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD));
+        long midExpiry = afterBurn.expiresAtGameTime().orElseThrow();
+        long preserved = midExpiry - startExpiry;
+        helper.assertTrue(preserved == interval,
+                "expiry should have advanced by exactly the ice's burn duration, got " + preserved);
+
+        tickCryo(be, helper, 5);
+        VialContents afterIdle = com.confect1on.dynetech.item.GeneVialItem.getContents(
+                be.inventory().getItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD));
+        helper.assertTrue(afterIdle.expiresAtGameTime().orElseThrow() == midExpiry,
+                "expiry must not advance once the reservoir is dry");
+        helper.succeed();
+    }
+
+    /**
+     * An expired player-blood vial must not be accepted as a template. Even with a full
+     * reservoir, the machine won't burn ice for a dead sample.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void cryo_refuses_expired_template(GameTestHelper helper) {
+        ensureBootstrapped();
+        var be = placeCryo(helper);
+        ResourceLocation playerType = BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.PLAYER);
+        long alreadyPast = helper.getLevel().getGameTime() - 1L;
+        VialContents expired = VialContents.rawPlayerBlood(UUID.randomUUID(), "Alice", playerType,
+                List.of(new PerkEntry(Perks.VITALITY.getId(), 1.0F, Optional.empty(), Optional.empty())),
+                alreadyPast);
+
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD,
+                com.confect1on.dynetech.item.GeneVialItem.withContents(expired));
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_A,
+                new ItemStack(net.minecraft.world.item.Items.ICE, 4));
+
+        tickCryo(be, helper, 200);
+        helper.assertTrue(be.iceCount() == 4, "reservoir should hold all 4 ice, none burnt on an expired vial");
+        helper.assertTrue(be.iceProgress() == 0, "no ice may be in progress against an expired vial");
+        helper.succeed();
+    }
+
+    /**
+     * Direct injection: right-clicking a fresh player-blood RAW vial applies the snapshot perks
+     * to the donor and empties the vial. This is the "recreate my gene combo" path.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void player_blood_direct_inject_applies_perks_to_donor(GameTestHelper helper) {
+        ensureBootstrapped();
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        ResourceLocation playerType = BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.PLAYER);
+        PerkEntry reach = new PerkEntry(Perks.REACHMINER.getId(), 1.0F, Optional.empty(), Optional.empty());
+        VialContents blood = VialContents.rawPlayerBlood(player.getUUID(), player.getName().getString(),
+                playerType, List.of(reach), helper.getLevel().getGameTime() + 6000L);
+
+        ItemStack held = com.confect1on.dynetech.item.GeneVialItem.withContents(blood);
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, held);
+
+        com.confect1on.dynetech.item.DTItems.GENE_VIAL.get().use(
+                helper.getLevel(), player, net.minecraft.world.InteractionHand.MAIN_HAND);
+
+        EquippedPerks eq = player.getData(DTAttachments.EQUIPPED_PERKS.get());
+        helper.assertTrue(eq.has(Perks.REACHMINER.getId()),
+                "donor should have the snapshot perk equipped after right-clicking their own blood vial");
+        VialContents afterUse = com.confect1on.dynetech.item.GeneVialItem.getContents(
+                player.getItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND));
+        helper.assertTrue(afterUse.state() == VialState.EMPTY,
+                "vial should empty out after a successful self-inject, got " + afterUse.state());
+        player.discard();
+        helper.succeed();
+    }
+
+    /**
+     * Thief scenario for the direct-injection path: another player right-clicks a blood vial
+     * keyed to someone else. They must NOT gain the perk and must receive the punishment
+     * cocktail.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void player_blood_direct_inject_punishes_foreigner(GameTestHelper helper) {
+        ensureBootstrapped();
+        var thief = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        ResourceLocation playerType = BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.PLAYER);
+        UUID donorId = UUID.randomUUID();
+        helper.assertTrue(!donorId.equals(thief.getUUID()), "thief UUID must differ from donor UUID");
+
+        PerkEntry vit = new PerkEntry(Perks.VITALITY.getId(), 1.0F, Optional.empty(), Optional.empty());
+        VialContents blood = VialContents.rawPlayerBlood(donorId, "Alice",
+                playerType, List.of(vit), helper.getLevel().getGameTime() + 6000L);
+        ItemStack held = com.confect1on.dynetech.item.GeneVialItem.withContents(blood);
+        thief.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, held);
+
+        com.confect1on.dynetech.item.DTItems.GENE_VIAL.get().use(
+                helper.getLevel(), thief, net.minecraft.world.InteractionHand.MAIN_HAND);
+
+        EquippedPerks eq = thief.getData(DTAttachments.EQUIPPED_PERKS.get());
+        helper.assertTrue(!eq.has(Perks.VITALITY.getId()), "thief must NOT gain the donor's perk");
+        helper.assertTrue(thief.hasEffect(MobEffects.WITHER),
+                "thief must receive Wither from the wrong-donor punishment");
+        helper.assertTrue(thief.hasEffect(MobEffects.BLINDNESS),
+                "thief must receive Blindness from the wrong-donor punishment");
+        helper.assertTrue(thief.hasEffect(MobEffects.CONFUSION),
+                "thief must receive Nausea from the wrong-donor punishment");
+        thief.discard();
+        helper.succeed();
+    }
+
+    /**
+     * Expired player-blood vials are refused for direct injection: nothing equips, no
+     * punishment fires, the vial stays in-hand for the player to discard.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void player_blood_expired_refuses_direct_inject(GameTestHelper helper) {
+        ensureBootstrapped();
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        ResourceLocation playerType = BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.PLAYER);
+        PerkEntry reach = new PerkEntry(Perks.REACHMINER.getId(), 1.0F, Optional.empty(), Optional.empty());
+        VialContents blood = VialContents.rawPlayerBlood(player.getUUID(), player.getName().getString(),
+                playerType, List.of(reach), helper.getLevel().getGameTime() - 1L);
+        ItemStack held = com.confect1on.dynetech.item.GeneVialItem.withContents(blood);
+        player.setItemInHand(net.minecraft.world.InteractionHand.MAIN_HAND, held);
+
+        com.confect1on.dynetech.item.DTItems.GENE_VIAL.get().use(
+                helper.getLevel(), player, net.minecraft.world.InteractionHand.MAIN_HAND);
+
+        EquippedPerks eq = player.getData(DTAttachments.EQUIPPED_PERKS.get());
+        helper.assertTrue(!eq.has(Perks.REACHMINER.getId()),
+                "expired sample must not equip anything on the donor");
+        helper.assertTrue(!player.hasEffect(MobEffects.WITHER),
+                "expired sample must not fire the punishment cocktail on the donor either");
+        player.discard();
+        helper.succeed();
+    }
+
+    /**
+     * Regression: taking the blood vial out of the machine must not touch the ice slots'
+     * client-visible state. Simulates the exact sequence that caused visible "snap": place the
+     * BE, load blood + ice, tick to flip preservingLastTick=true, then remove the blood and
+     * capture the update tag. That tag must not carry an inventory payload that would trigger
+     * a client-side clear-and-refill on the ice slots.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void cryo_state_update_tag_omits_inventory(GameTestHelper helper) {
+        ensureBootstrapped();
+        var be = placeCryo(helper);
+        VialContents template = playerBloodWith(helper, UUID.randomUUID(), "Alice",
+                List.of(new PerkEntry(Perks.VITALITY.getId(), 1.0F, Optional.empty(), Optional.empty())));
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD,
+                com.confect1on.dynetech.item.GeneVialItem.withContents(template));
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_A,
+                new ItemStack(net.minecraft.world.item.Items.ICE, 32));
+
+        tickCryo(be, helper, 2);
+        net.minecraft.nbt.CompoundTag update = be.getUpdateTag(helper.getLevel().registryAccess());
+        helper.assertTrue(!update.contains("Inv"),
+                "state update tag must not include Inv (would cause client-side slot flash)");
+        helper.assertTrue(update.contains("IceProgress"),
+                "state update tag must still carry IceProgress for burn-meter rendering");
+        helper.succeed();
+    }
+
+    /**
+     * Regression: taking the blood vial out and putting it back must not delete or shuffle ice
+     * slot contents. Exercises the swap sequence directly on the container.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void cryo_ice_stays_put_across_blood_swap(GameTestHelper helper) {
+        ensureBootstrapped();
+        var be = placeCryo(helper);
+        VialContents template = playerBloodWith(helper, UUID.randomUUID(), "Alice",
+                List.of(new PerkEntry(Perks.VITALITY.getId(), 1.0F, Optional.empty(), Optional.empty())));
+        ItemStack bloodStack = com.confect1on.dynetech.item.GeneVialItem.withContents(template);
+
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD, bloodStack);
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_A,
+                new ItemStack(net.minecraft.world.item.Items.ICE, 32));
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_C,
+                new ItemStack(net.minecraft.world.item.Items.PACKED_ICE, 16));
+        tickCryo(be, helper, 2);
+
+        // Pull the blood, tick a few times (preservingLastTick should flip), reinsert.
+        ItemStack removed = be.inventory().removeItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD, 1);
+        tickCryo(be, helper, 5);
+        be.inventory().setItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_BLOOD, removed);
+        tickCryo(be, helper, 2);
+
+        ItemStack iceA = be.inventory().getItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_A);
+        ItemStack iceC = be.inventory().getItem(com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity.SLOT_ICE_C);
+        helper.assertTrue(iceA.getItem() == net.minecraft.world.item.Items.ICE && iceA.getCount() >= 31,
+                "SLOT_ICE_A ice must remain (allow for one burn start), got " + iceA);
+        helper.assertTrue(iceC.getItem() == net.minecraft.world.item.Items.PACKED_ICE && iceC.getCount() == 16,
+                "SLOT_ICE_C packed ice must be untouched, got " + iceC);
+        helper.succeed();
+    }
+
+    /**
+     * Regression: the injection gun must accept a fresh player-blood RAW vial as ammo, not
+     * refuse to load and drop it on the floor.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void gun_loads_player_blood_raw(GameTestHelper helper) {
+        ensureBootstrapped();
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        ResourceLocation playerType = BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.PLAYER);
+        VialContents blood = VialContents.rawPlayerBlood(player.getUUID(), player.getName().getString(),
+                playerType,
+                List.of(new PerkEntry(Perks.REACHMINER.getId(), 1.0F, Optional.empty(), Optional.empty())),
+                helper.getLevel().getGameTime() + 6000L);
+
+        ItemStack gun = new ItemStack(com.confect1on.dynetech.item.DTItems.INJECTION_GUN.get());
+        gun.set(com.confect1on.dynetech.component.DTDataComponents.LOADED_VIAL.get(),
+                VialContents.EMPTY);
+        // Fire the gun with the blood loaded as ammo (bypasses right-click into off-hand).
+        gun.set(com.confect1on.dynetech.component.DTDataComponents.LOADED_VIAL.get(), blood);
+        boolean fired = com.confect1on.dynetech.item.InjectionGunItem.fireAtSelf(player, gun);
+        helper.assertTrue(fired, "gun must fire with a loaded player-blood RAW vial");
+
+        EquippedPerks eq = player.getData(DTAttachments.EQUIPPED_PERKS.get());
+        helper.assertTrue(eq.has(Perks.REACHMINER.getId()),
+                "donor should have the snapshot perk equipped after firing their own blood");
+        player.discard();
+        helper.succeed();
+    }
+
+    /**
+     * A vial drawn N ticks ago with a TTL of N must read as expired. Sanity check on the
+     * expiry field independent of the machine.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void player_blood_reports_expired_after_ttl(GameTestHelper helper) {
+        ensureBootstrapped();
+        long now = helper.getLevel().getGameTime();
+        ResourceLocation playerType = BuiltInRegistries.ENTITY_TYPE.getKey(EntityType.PLAYER);
+        VialContents fresh = VialContents.rawPlayerBlood(UUID.randomUUID(), "Alice", playerType,
+                List.of(), now + 10L);
+        helper.assertTrue(!fresh.isExpired(now), "fresh vial should not report expired at draw time");
+        helper.assertTrue(!fresh.isExpired(now + 9L), "vial must remain fresh right up to the expiry tick");
+        helper.assertTrue(fresh.isExpired(now + 10L), "vial must report expired at the expiry tick");
+        helper.assertTrue(fresh.isExpired(now + 100L), "vial must remain expired past the expiry tick");
         helper.succeed();
     }
 }

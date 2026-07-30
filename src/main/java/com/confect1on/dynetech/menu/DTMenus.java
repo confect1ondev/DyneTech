@@ -6,6 +6,7 @@ import net.neoforged.neoforge.common.extensions.IMenuTypeExtension;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import com.confect1on.dynetech.DyneTech;
+import com.confect1on.dynetech.blockentity.CryoPreservatorBlockEntity;
 import com.confect1on.dynetech.blockentity.GeneMicroscopeBlockEntity;
 import com.confect1on.dynetech.blockentity.GeneSequencerBlockEntity;
 import com.confect1on.dynetech.blockentity.GeneSplicerBlockEntity;
@@ -40,6 +41,15 @@ public class DTMenus {
                 return be instanceof GeneSplicerBlockEntity s
                         ? new GeneSplicerMenu(id, inv, s)
                         : new GeneSplicerMenu(id, inv);
+            }));
+
+    public static final DeferredHolder<MenuType<?>, MenuType<CryoPreservatorMenu>> CRYO_PRESERVATOR =
+            MENUS.register("cryo_preservator", () -> IMenuTypeExtension.create((id, inv, buf) -> {
+                var pos = buf.readBlockPos();
+                var be = inv.player.level().getBlockEntity(pos);
+                return be instanceof CryoPreservatorBlockEntity s
+                        ? new CryoPreservatorMenu(id, inv, s)
+                        : new CryoPreservatorMenu(id, inv);
             }));
 
     public static final DeferredHolder<MenuType<?>, MenuType<GeneMicroscopeMenu>> GENE_MICROSCOPE =

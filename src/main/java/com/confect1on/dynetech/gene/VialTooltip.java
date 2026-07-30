@@ -26,11 +26,17 @@ public final class VialTooltip {
             lines.add(Component.translatable(c.state().langKey()).withStyle(ChatFormatting.GRAY));
         }
 
+        // Player-blood samples show their decay clock right under the state header so a glance
+        // at the tooltip tells the player whether the vial is still safe to use or needs to be
+        // slotted into a Cryo Preservator.
+        appendExpiryLine(c, lines);
+
         switch (c.state()) {
             case RAW -> appendRaw(c, lines);
-            case SERUM -> {
+            case SERUM, BOUND_SERUM -> {
                 // Serum is blood + spliced gene. Show the blood source line first so it reads
-                // as "this is X's blood, spliced with:" followed by the perk list.
+                // as "this is X's blood, spliced with:" followed by the perk list. Bound serums
+                // render the same way; the state header already tells the reader which is which.
                 appendBloodFromLine(c, lines);
                 lines.add(Component.translatable("dynetech.vial.spliced_with").withStyle(ChatFormatting.DARK_GRAY));
                 appendPerks(c, lines);
@@ -39,9 +45,51 @@ public final class VialTooltip {
             default -> {}
         }
 
-        // Isolated still gets the compact donor/species footer. RAW/SERUM already carry it,
-        // and EMPTY has nothing to attribute.
+        // Isolated still gets the compact donor/species footer. RAW/SERUM/BOUND_SERUM already
+        // carry it, and EMPTY has nothing to attribute.
         if (c.state() == VialState.ISOLATED) appendDonorLine(c, lines);
+    }
+
+    /**
+     * Read the vial's expiry against the client's wall-clock game time. This only fires for
+     * player-blood samples; nothing else carries a decay timer. Uses the client level so the
+     * countdown updates every render tick without the item needing to sync on every change.
+     */
+    private static void appendExpiryLine(VialContents c, List<Component> lines) {
+        if (c.expiresAtGameTime().isEmpty()) return;
+        long expiresAt = c.expiresAtGameTime().get();
+        long now = clientGameTime();
+        long remaining = expiresAt - now;
+        if (remaining <= 0) {
+            lines.add(Component.translatable("dynetech.vial.expired").withStyle(ChatFormatting.DARK_RED));
+            return;
+        }
+        long seconds = remaining / 20L;
+        long m = seconds / 60L;
+        long s = seconds % 60L;
+        String stamp = String.format("%d:%02d", m, s);
+        ChatFormatting color = seconds < 30 ? ChatFormatting.RED
+                : seconds < 120 ? ChatFormatting.GOLD
+                : ChatFormatting.AQUA;
+        lines.add(Component.translatable("dynetech.vial.fresh_for", stamp).withStyle(color));
+    }
+
+    private static long clientGameTime() {
+        // Tooltips only render client-side, but this class also ends up class-loaded on dedicated
+        // servers for stat logging. Route the Minecraft lookup through DistExecutor so the
+        // client-only reference is never linked in a server JVM.
+        if (net.neoforged.fml.loading.FMLEnvironment.dist != net.neoforged.api.distmarker.Dist.CLIENT) {
+            return 0L;
+        }
+        return ClientGameTime.get();
+    }
+
+    /** Split into a nested class so its Minecraft reference is only touched on the client. */
+    private static final class ClientGameTime {
+        static long get() {
+            net.minecraft.client.Minecraft mc = net.minecraft.client.Minecraft.getInstance();
+            return mc != null && mc.level != null ? mc.level.getGameTime() : 0L;
+        }
     }
 
     private static void appendBloodFromLine(VialContents c, List<Component> lines) {

@@ -28,6 +28,11 @@ import java.util.UUID;
  *                      perks at the moment of the draw. Player blood vials are un-sequenceable
  *                      - the microscope reads this list to show that specific player's genes,
  *                      drawbacks, and conditions all at once.
+ * @param expiresAtGameTime absolute world-tick timestamp at which the sample degrades and
+ *                      becomes unusable. Only populated for player-blood RAW vials. The Cryo
+ *                      Preservator keeps the sample alive by ticking this forward while ice is
+ *                      supplied; outside preservation, world time catches up and the vial
+ *                      goes bad.
  */
 public record VialContents(
         VialState state,
@@ -35,10 +40,12 @@ public record VialContents(
         Optional<UUID> donor,
         Optional<String> donorName,
         Optional<ResourceLocation> donorType,
-        Optional<List<PerkEntry>> playerSnapshot
+        Optional<List<PerkEntry>> playerSnapshot,
+        Optional<Long> expiresAtGameTime
 ) {
     public static final VialContents EMPTY =
-            new VialContents(VialState.EMPTY, List.of(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
+            new VialContents(VialState.EMPTY, List.of(),
+                    Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
     /**
      * Synthetic donor type used exclusively by op-issued {@code /dynetech vial} outputs. A vial
@@ -55,17 +62,15 @@ public record VialContents(
             UUIDUtil.CODEC.optionalFieldOf("donor").forGetter(VialContents::donor),
             Codec.STRING.optionalFieldOf("donor_name").forGetter(VialContents::donorName),
             ResourceLocation.CODEC.optionalFieldOf("donor_type").forGetter(VialContents::donorType),
-            PerkEntry.CODEC.listOf().optionalFieldOf("player_snapshot").forGetter(VialContents::playerSnapshot)
+            PerkEntry.CODEC.listOf().optionalFieldOf("player_snapshot").forGetter(VialContents::playerSnapshot),
+            Codec.LONG.optionalFieldOf("expires_at").forGetter(VialContents::expiresAtGameTime)
     ).apply(inst, VialContents::new));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, VialContents> STREAM_CODEC = StreamCodec.composite(
-            VialState.STREAM_CODEC,                                      VialContents::state,
-            PerkEntry.STREAM_CODEC.apply(ByteBufCodecs.list()),          VialContents::perks,
-            ByteBufCodecs.optional(UUIDUtil.STREAM_CODEC),               VialContents::donor,
-            ByteBufCodecs.optional(ByteBufCodecs.STRING_UTF8),           VialContents::donorName,
-            ByteBufCodecs.optional(ResourceLocation.STREAM_CODEC),       VialContents::donorType,
-            ByteBufCodecs.optional(PerkEntry.STREAM_CODEC.apply(ByteBufCodecs.list())), VialContents::playerSnapshot,
-            VialContents::new);
+    // Mojang's StreamCodec.composite tops out at 6 fields; VialContents needs 7. Route the
+    // network encoding through the same CODEC we use for disk persistence to sidestep the arity
+    // ceiling. Vials never move often enough for the extra NBT round-trip to matter.
+    public static final StreamCodec<RegistryFriendlyByteBuf, VialContents> STREAM_CODEC =
+            ByteBufCodecs.fromCodecWithRegistries(CODEC);
 
     public VialContents {
         perks = List.copyOf(perks);
@@ -74,28 +79,51 @@ public record VialContents(
 
     public static VialContents raw(List<PerkEntry> pool, UUID donorId, Optional<String> donorName, ResourceLocation donorType) {
         return new VialContents(VialState.RAW, pool,
-                Optional.of(donorId), donorName, Optional.of(donorType), Optional.empty());
+                Optional.of(donorId), donorName, Optional.of(donorType), Optional.empty(), Optional.empty());
     }
 
     public static VialContents rawPlayerBlood(UUID donorId, String donorName, ResourceLocation donorType,
-                                              List<PerkEntry> equippedSnapshot) {
+                                              List<PerkEntry> equippedSnapshot, long expiresAtGameTime) {
         return new VialContents(VialState.RAW, List.of(),
                 Optional.of(donorId), Optional.of(donorName), Optional.of(donorType),
-                Optional.of(equippedSnapshot));
+                Optional.of(equippedSnapshot),
+                Optional.of(expiresAtGameTime));
     }
 
     public static VialContents isolated(PerkEntry entry, Optional<UUID> donor,
                                         Optional<String> donorName, Optional<ResourceLocation> donorType) {
-        return new VialContents(VialState.ISOLATED, List.of(entry), donor, donorName, donorType, Optional.empty());
+        return new VialContents(VialState.ISOLATED, List.of(entry), donor, donorName, donorType, Optional.empty(), Optional.empty());
     }
 
     public static VialContents serum(List<PerkEntry> perks, Optional<UUID> donor,
                                      Optional<String> donorName, Optional<ResourceLocation> donorType) {
-        return new VialContents(VialState.SERUM, perks, donor, donorName, donorType, Optional.empty());
+        return new VialContents(VialState.SERUM, perks, donor, donorName, donorType, Optional.empty(), Optional.empty());
+    }
+
+    /**
+     * Cryo Preservator output. Carries the same perks + donor identity as the source player-blood
+     * RAW vial. Once extracted, a bound serum is stable and does not carry a decay timer of its
+     * own; injection is gated to the donor player, and anyone else gets punished (see
+     * {@link PerkLifecycle}).
+     */
+    public static VialContents boundSerum(List<PerkEntry> perks, UUID donor,
+                                          Optional<String> donorName, ResourceLocation donorType) {
+        return new VialContents(VialState.BOUND_SERUM, perks,
+                Optional.of(donor), donorName, Optional.of(donorType), Optional.empty(), Optional.empty());
     }
 
     /** True if this is a locked player-blood RAW vial - sequencer must refuse it. */
     public boolean isPlayerBlood() { return playerSnapshot.isPresent(); }
+
+    /** True if a decay timer was set and the current world tick has passed it. */
+    public boolean isExpired(long currentGameTime) {
+        return expiresAtGameTime.map(t -> currentGameTime >= t).orElse(false);
+    }
+
+    /** Copy with a new expiry (used by the Cryo Preservator to freeze / bump the timer). */
+    public VialContents withExpiry(Optional<Long> newExpiry) {
+        return new VialContents(state, perks, donor, donorName, donorType, playerSnapshot, newExpiry);
+    }
 
     /** Merge two ISOLATED contents by concatenating their perk lists (dupe perkIds are averaged). */
     public static VialContents mergeIsolated(VialContents a, VialContents b) {
@@ -115,7 +143,8 @@ public record VialContents(
         Optional<UUID> donor = a.donor.or(() -> b.donor);
         Optional<String> donorName = a.donorName.or(() -> b.donorName);
         Optional<ResourceLocation> donorType = a.donorType.equals(b.donorType) ? a.donorType : Optional.empty();
-        return new VialContents(VialState.ISOLATED, Collections.unmodifiableList(merged), donor, donorName, donorType, Optional.empty());
+        return new VialContents(VialState.ISOLATED, Collections.unmodifiableList(merged),
+                donor, donorName, donorType, Optional.empty(), Optional.empty());
     }
 
     public float maxQuality() {

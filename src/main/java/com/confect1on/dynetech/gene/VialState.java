@@ -14,7 +14,12 @@ public enum VialState implements StringRepresentable {
     /** A single perk isolated out of a raw draw. */
     ISOLATED("isolated"),
     /** A splicer-produced injectable. Right-click self or a mob to apply. */
-    SERUM("serum");
+    SERUM("serum"),
+    /** Cryo Preservator output. Locked to a single player donor; wrong donor is punished. */
+    BOUND_SERUM("bound_serum");
+
+    /** True for anything the injection path should treat as a ready-to-use serum. */
+    public boolean isSerum() { return this == SERUM || this == BOUND_SERUM; }
 
     public static final Codec<VialState> CODEC = StringRepresentable.fromEnum(VialState::values);
     // String-based rather than ordinal - a future reorder of the enum would silently break wire

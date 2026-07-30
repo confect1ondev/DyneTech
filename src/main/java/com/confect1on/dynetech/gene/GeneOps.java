@@ -43,10 +43,13 @@ public final class GeneOps {
         // Player blood is treated specially: instead of rolling from a species pool, we snapshot
         // the donor's actual equipped perks. The resulting vial is locked. The sequencer refuses
         // it, but the microscope can read the snapshot to show that specific player's genes.
+        // Player blood also carries an expiry: if the sample isn't preserved on ice, it goes bad.
         if (donor instanceof Player) {
             EquippedPerks eq = donor.getData(DTAttachments.EQUIPPED_PERKS.get());
+            long expiresAt = donor.level().getGameTime()
+                    + com.confect1on.dynetech.config.DTConfig.PLAYER_BLOOD_TTL_TICKS.get();
             return VialContents.rawPlayerBlood(donor.getUUID(), donorName.orElse(donor.getName().getString()),
-                    donorTypeId, eq.perks());
+                    donorTypeId, eq.perks(), expiresAt);
         }
 
         List<SpeciesPool.Weighted> pool = SpeciesPool.forEntity(donor);

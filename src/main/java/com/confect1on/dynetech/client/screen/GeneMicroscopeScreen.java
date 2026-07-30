@@ -256,7 +256,7 @@ public class GeneMicroscopeScreen extends AbstractContainerScreen<GeneMicroscope
                     }
                 }
             }
-            case ISOLATED, SERUM -> {
+            case ISOLATED, SERUM, BOUND_SERUM -> {
                 for (PerkEntry entry : c.perks()) addPerkPage(entry, out);
             }
         }

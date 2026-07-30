@@ -49,6 +49,7 @@
   "block.dynetech.gene_sequencer": "Gene Sequencer",
   "block.dynetech.gene_splicer": "Gene Splicer",
   "block.dynetech.gene_microscope": "Gene Microscope",
+  "block.dynetech.cryo_preservator": "Cryo Preservator",
 
   "dynetech.microscope.empty": "Insert a vial to inspect it.",
   "dynetech.microscope.donor_player": "Blood from %s",
@@ -129,12 +130,15 @@
   "dynetech.vial_state.raw": "Raw Sample",
   "dynetech.vial_state.isolated": "Isolated Perk",
   "dynetech.vial_state.serum": "Serum",
+  "dynetech.vial_state.bound_serum": "Bound Serum",
 
   "dynetech.vial.donor": "Donor: %s",
   "dynetech.vial.blood_from": "Blood from: %s",
   "dynetech.vial.source_species": "Source species: %s",
   "dynetech.vial.donor_and_species": "Donor: %s (%s)",
   "dynetech.vial.spliced_with": "Spliced with:",
+  "dynetech.vial.fresh_for": "Fresh for %s",
+  "dynetech.vial.expired": "Sample has degraded",
 
   "dynetech.perk_grade.pristine": "Pristine",
   "dynetech.perk_grade.excellent": "Excellent",
@@ -208,6 +212,13 @@
 
   "dynetech.sequencer.hint": "Insert a Raw Sample vial, then use Empty vials to isolate perks.",
   "dynetech.splicer.hint": "Insert two vials - two Isolated to merge, or Isolated + Empty to brew a Serum.",
+  "dynetech.cryo.hint": "Drop your own blood vial in the center, feed ice on the side. Each ice buys 2 hours of freshness.",
+
+  "gui.dynetech.cryo.stored": "Ice: %s / %s",
+  "gui.dynetech.cryo.fresh_for": "Fresh for:",
+  "gui.dynetech.cryo.status.preserving": "Preserving",
+  "gui.dynetech.cryo.status.idle": "Idle",
+  "gui.dynetech.cryo.status.no_ice": "No coolant",
 
   "dynetech.gui.sequencer.sample": "Sample",
   "dynetech.gui.sequencer.output": "Perks",
@@ -231,6 +242,8 @@
   "dynetech.inject.gained": "Gained: %s (%s)",
   "dynetech.inject.defect": "Defect: %s",
   "dynetech.inject.incompatible": "Serum rejected. Target does not match the blood's donor.",
+  "dynetech.inject.foreign_bound": "This sample was keyed to another donor. Your body rejects it violently.",
+  "dynetech.inject.expired": "The sample has degraded and produces no effect.",
 
   "subtitles.dynetech.godhood.regen": "A god burns",
   "subtitles.dynetech.godhood.whispers": "Divine whispers",

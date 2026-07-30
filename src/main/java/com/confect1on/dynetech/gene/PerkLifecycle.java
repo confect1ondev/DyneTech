@@ -6,7 +6,11 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 
@@ -51,11 +55,47 @@ public final class PerkLifecycle {
      * to the target rather than replacing the intended perk.
      */
     public static void inject(LivingEntity target, VialContents contents, RandomSource rng) {
+        if (target.level().isClientSide) return;
+        long now = target.level().getGameTime();
+
+        // Player-blood RAW is directly injectable via right-click / injection gun. Route it
+        // through a synthetic bound serum so donor lock + punishment logic run uniformly.
+        if (contents.state() == VialState.RAW && contents.isPlayerBlood()) {
+            if (contents.isExpired(now)) {
+                if (target instanceof Player p) {
+                    p.sendSystemMessage(Component.translatable("dynetech.inject.expired")
+                            .withStyle(ChatFormatting.DARK_GRAY));
+                }
+                return;
+            }
+            if (contents.donor().isEmpty() || contents.donorType().isEmpty()) return;
+            contents = VialContents.boundSerum(
+                    contents.playerSnapshot().orElse(java.util.List.of()),
+                    contents.donor().get(),
+                    contents.donorName(),
+                    contents.donorType().get());
+        }
+
         if (contents.perks().isEmpty()) return;
         // Genes have to be added back into blood via the splicer before injection: only SERUM
-        // can be injected. Bare ISOLATED vials no longer take effect on right-click.
-        if (contents.state() != VialState.SERUM) return;
-        if (target.level().isClientSide) return;
+        // (or a Cryo Preservator's BOUND_SERUM) can be injected. Bare ISOLATED vials no longer
+        // take effect on right-click.
+        if (!contents.state().isSerum()) return;
+
+        if (contents.isExpired(now)) {
+            if (target instanceof Player p) {
+                p.sendSystemMessage(Component.translatable("dynetech.inject.expired")
+                        .withStyle(ChatFormatting.DARK_GRAY));
+            }
+            return;
+        }
+
+        // Bound serums are keyed to a single player. Wrong donor triggers a punishment cocktail
+        // instead of the vanilla "rejected" message.
+        if (contents.state() == VialState.BOUND_SERUM && !isBoundOwner(target, contents)) {
+            punishForeignBoundInjection(target);
+            return;
+        }
 
         if (!isCompatible(target, contents)) {
             if (target instanceof Player p) {
@@ -122,6 +162,46 @@ public final class PerkLifecycle {
         }
         ResourceLocation targetTypeId = BuiltInRegistries.ENTITY_TYPE.getKey(target.getType());
         return donorTypeId.equals(targetTypeId);
+    }
+
+    /**
+     * True if {@code contents} is in a state that {@link #inject} will act on. Consumers can use
+     * this to gate UI (e.g. the injection gun's canLoad / isFireable checks) without duplicating
+     * the state machine.
+     */
+    public static boolean isInjectable(VialContents contents) {
+        if (contents.state().isSerum()) return true;
+        return contents.state() == VialState.RAW && contents.isPlayerBlood()
+                && contents.donor().isPresent() && contents.donorType().isPresent();
+    }
+
+    /** True if this bound serum's donor UUID matches the target player. */
+    private static boolean isBoundOwner(LivingEntity target, VialContents serum) {
+        if (!(target instanceof Player p)) return false;
+        return serum.donor().map(id -> id.equals(p.getUUID())).orElse(false);
+    }
+
+    /**
+     * Wrong player used someone else's cryo-preserved sample. Rejection isn't enough here: the
+     * whole point of a bound serum is that stealing it kills you. Wither II over two minutes is
+     * lethal to any unarmored target; nausea and blindness make the last stretch miserable.
+     */
+    private static void punishForeignBoundInjection(LivingEntity target) {
+        int ticks = 20 * 120;
+        target.addEffect(new MobEffectInstance(MobEffects.BLINDNESS, ticks, 0));
+        target.addEffect(new MobEffectInstance(MobEffects.CONFUSION, ticks, 0));
+        target.addEffect(new MobEffectInstance(MobEffects.WITHER, ticks, 1));
+        if (target.level() instanceof ServerLevel sl) {
+            sl.sendParticles(ParticleTypes.ANGRY_VILLAGER,
+                    target.getX(), target.getY() + target.getBbHeight() * 0.6, target.getZ(),
+                    16, 0.4, 0.5, 0.4, 0.02);
+            sl.playSound(null, target.getX(), target.getY(), target.getZ(),
+                    SoundEvents.WITHER_HURT, SoundSource.PLAYERS, 0.6F, 1.4F);
+        }
+        if (target instanceof Player p) {
+            p.sendSystemMessage(Component.translatable("dynetech.inject.foreign_bound")
+                    .withStyle(ChatFormatting.DARK_RED));
+        }
     }
 
     private static void notifyInjection(LivingEntity target, List<PerkEntry> equipped, List<PerkEntry> defected) {

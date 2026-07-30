@@ -81,6 +81,7 @@ public class DTItems {
                 output.accept(DTBlocks.GENE_SEQUENCER.get());
                 output.accept(DTBlocks.GENE_SPLICER.get());
                 output.accept(DTBlocks.GENE_MICROSCOPE.get());
+                output.accept(DTBlocks.CRYO_PRESERVATOR.get());
                 // PerkCycler is a dev-only cycler: reachable via /give but not shown in the tab.
             })
             .build());

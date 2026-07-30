@@ -99,7 +99,7 @@ public class GeneVialItem extends Item {
             return InteractionResult.sidedSuccess(level.isClientSide);
         }
 
-        if (contents.state() == VialState.SERUM) {
+        if (PerkLifecycle.isInjectable(contents)) {
             if (!level.isClientSide) {
                 PerkLifecycle.inject(target, contents, level.random);
                 emptyVial(stack);
@@ -118,8 +118,16 @@ public class GeneVialItem extends Item {
         ItemStack stack = player.getItemInHand(hand);
         VialContents contents = getContents(stack);
 
-        // Sneak + right-click: purge whatever's in the vial.
+        // Sneak + right-click: purge whatever's in the vial. Exception: if the opposite hand
+        // holds an unloaded injection gun, defer via PASS so the gun's own use() loads this
+        // vial instead of nuking it. That way "vial in main hand + gun in off hand" behaves
+        // the same as the documented "vial in off hand + gun in main hand" gesture.
         if (player.isShiftKeyDown() && contents.state() != VialState.EMPTY) {
+            InteractionHand otherHand = hand == InteractionHand.MAIN_HAND ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND;
+            ItemStack other = player.getItemInHand(otherHand);
+            if (other.getItem() instanceof InjectionGunItem && !InjectionGunItem.hasLoadedComponent(other)) {
+                return InteractionResultHolder.pass(stack);
+            }
             if (!level.isClientSide) {
                 emptyVial(stack);
                 level.playSound(null, player.getX(), player.getY(), player.getZ(),
@@ -128,8 +136,9 @@ public class GeneVialItem extends Item {
             return InteractionResultHolder.sidedSuccess(stack, level.isClientSide);
         }
 
-        // Only SERUM injects - Isolated genes have to be spliced back into blood first.
-        if (contents.state() != VialState.SERUM) {
+        // Serum states inject directly; PerkLifecycle also promotes fresh player-blood RAW to
+        // an injectable path. Isolated genes still need the splicer first.
+        if (!PerkLifecycle.isInjectable(contents)) {
             return InteractionResultHolder.pass(stack);
         }
         if (!level.isClientSide) {

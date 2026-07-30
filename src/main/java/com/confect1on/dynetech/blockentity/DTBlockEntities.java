@@ -31,4 +31,9 @@ public class DTBlockEntities {
             BLOCK_ENTITIES.register("gene_microscope",
                     () -> BlockEntityType.Builder.of(GeneMicroscopeBlockEntity::new, DTBlocks.GENE_MICROSCOPE.get())
                             .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<CryoPreservatorBlockEntity>> CRYO_PRESERVATOR =
+            BLOCK_ENTITIES.register("cryo_preservator",
+                    () -> BlockEntityType.Builder.of(CryoPreservatorBlockEntity::new, DTBlocks.CRYO_PRESERVATOR.get())
+                            .build(null));
 }

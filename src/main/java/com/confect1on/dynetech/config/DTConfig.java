@@ -24,6 +24,9 @@ public final class DTConfig {
     public static final ModConfigSpec.IntValue GC_INTERVAL_SECONDS;
     public static final ModConfigSpec.IntValue SPLICER_TICKS;
     public static final ModConfigSpec.IntValue SEQUENCER_TICKS;
+    public static final ModConfigSpec.IntValue CRYO_TICKS;
+    public static final ModConfigSpec.IntValue PLAYER_BLOOD_TTL_TICKS;
+    public static final ModConfigSpec.IntValue CRYO_ICE_INTERVAL_TICKS;
     public static final ModConfigSpec.IntValue WHISPER_TICK_INTERVAL;
     public static final ModConfigSpec.DoubleValue WHISPER_BASE_RADIUS;
     public static final ModConfigSpec.DoubleValue WHISPER_RADIUS_PER_CHARGE;
@@ -58,6 +61,9 @@ public final class DTConfig {
         GC_INTERVAL_SECONDS = pair.getLeft().gcIntervalSeconds;
         SPLICER_TICKS = pair.getLeft().splicerTicks;
         SEQUENCER_TICKS = pair.getLeft().sequencerTicks;
+        CRYO_TICKS = pair.getLeft().cryoTicks;
+        PLAYER_BLOOD_TTL_TICKS = pair.getLeft().playerBloodTtlTicks;
+        CRYO_ICE_INTERVAL_TICKS = pair.getLeft().cryoIceIntervalTicks;
         WHISPER_TICK_INTERVAL = pair.getLeft().whisperTickInterval;
         WHISPER_BASE_RADIUS = pair.getLeft().whisperBaseRadius;
         WHISPER_RADIUS_PER_CHARGE = pair.getLeft().whisperRadiusPerCharge;
@@ -109,6 +115,9 @@ public final class DTConfig {
         final ModConfigSpec.IntValue gcIntervalSeconds;
         final ModConfigSpec.IntValue splicerTicks;
         final ModConfigSpec.IntValue sequencerTicks;
+        final ModConfigSpec.IntValue cryoTicks;
+        final ModConfigSpec.IntValue playerBloodTtlTicks;
+        final ModConfigSpec.IntValue cryoIceIntervalTicks;
         final ModConfigSpec.IntValue whisperTickInterval;
         final ModConfigSpec.DoubleValue whisperBaseRadius;
         final ModConfigSpec.DoubleValue whisperRadiusPerCharge;
@@ -167,6 +176,23 @@ public final class DTConfig {
                     .comment("Ticks the Gene Sequencer needs to isolate one perk from a Raw sample.",
                             "Default 80 = 4 seconds per extraction.")
                     .defineInRange("sequencer_ticks", 80, 20, 24_000);
+
+            cryoTicks = b
+                    .comment("Ticks the Cryo Preservator needs to press one Bound Serum from the",
+                            "template vial. Ice is not spent per dose; the same coolant that keeps",
+                            "the sample frozen powers extraction. Default 100 = 5 seconds per dose.")
+                    .defineInRange("cryo_ticks", 100, 20, 24_000);
+
+            playerBloodTtlTicks = b
+                    .comment("Ticks a freshly-drawn player-blood vial stays viable outside the Cryo",
+                            "Preservator before it degrades. Default 6000 = 5 minutes.")
+                    .defineInRange("player_blood_ttl_ticks", 6000, 200, 24_000_000);
+
+            cryoIceIntervalTicks = b
+                    .comment("Ticks of active preservation the Cryo Preservator gets from one ice.",
+                            "Every time the counter hits this value, one ice is consumed. Default",
+                            "144000 = 2 hours of preservation per ice.")
+                    .defineInRange("cryo_ice_interval_ticks", 144_000, 20, 24_000_000);
 
             b.comment("Godhood whisper detection.").push("godhood_whispers");
 
