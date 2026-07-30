@@ -1,0 +1,8 @@
+{
+  "entries": [
+    {"perk": "dynetech:stoneskin", "weight": 5},
+    {"perk": "dynetech:bulwark", "weight": 4},
+    {"perk": "dynetech:cushion", "weight": 3},
+    {"perk": "dynetech:composure", "weight": 2}
+  ]
+}

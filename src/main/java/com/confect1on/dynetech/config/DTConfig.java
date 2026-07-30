@@ -24,6 +24,11 @@ public final class DTConfig {
     public static final ModConfigSpec.IntValue GC_INTERVAL_SECONDS;
     public static final ModConfigSpec.IntValue SPLICER_TICKS;
     public static final ModConfigSpec.IntValue SEQUENCER_TICKS;
+    public static final ModConfigSpec.IntValue WHISPER_TICK_INTERVAL;
+    public static final ModConfigSpec.DoubleValue WHISPER_BASE_RADIUS;
+    public static final ModConfigSpec.DoubleValue WHISPER_RADIUS_PER_CHARGE;
+    public static final ModConfigSpec.DoubleValue WHISPER_MAX_VOLUME;
+    public static final ModConfigSpec.DoubleValue WHISPER_POSITION_JITTER;
 
     private static final List<String> DEFAULT_BLACKLIST = List.of(
             "minecraft:bedrock",
@@ -53,6 +58,11 @@ public final class DTConfig {
         GC_INTERVAL_SECONDS = pair.getLeft().gcIntervalSeconds;
         SPLICER_TICKS = pair.getLeft().splicerTicks;
         SEQUENCER_TICKS = pair.getLeft().sequencerTicks;
+        WHISPER_TICK_INTERVAL = pair.getLeft().whisperTickInterval;
+        WHISPER_BASE_RADIUS = pair.getLeft().whisperBaseRadius;
+        WHISPER_RADIUS_PER_CHARGE = pair.getLeft().whisperRadiusPerCharge;
+        WHISPER_MAX_VOLUME = pair.getLeft().whisperMaxVolume;
+        WHISPER_POSITION_JITTER = pair.getLeft().whisperPositionJitter;
         SPEC = pair.getRight();
     }
 
@@ -99,6 +109,11 @@ public final class DTConfig {
         final ModConfigSpec.IntValue gcIntervalSeconds;
         final ModConfigSpec.IntValue splicerTicks;
         final ModConfigSpec.IntValue sequencerTicks;
+        final ModConfigSpec.IntValue whisperTickInterval;
+        final ModConfigSpec.DoubleValue whisperBaseRadius;
+        final ModConfigSpec.DoubleValue whisperRadiusPerCharge;
+        final ModConfigSpec.DoubleValue whisperMaxVolume;
+        final ModConfigSpec.DoubleValue whisperPositionJitter;
 
         Data(ModConfigSpec.Builder b) {
             b.comment("Server-side settings for DyneTech.").push("server");
@@ -152,6 +167,36 @@ public final class DTConfig {
                     .comment("Ticks the Gene Sequencer needs to isolate one perk from a Raw sample.",
                             "Default 80 = 4 seconds per extraction.")
                     .defineInRange("sequencer_ticks", 80, 20, 24_000);
+
+            b.comment("Godhood whisper detection.").push("godhood_whispers");
+
+            whisperTickInterval = b
+                    .comment("How often the whisper broadcast runs (ticks). 40 = 2 seconds.",
+                            "Longer intervals reduce overlapping voices; shorter give a denser choir.",
+                            "Also determines how often the positional jitter is re-rolled.")
+                    .defineInRange("tick_interval", 40, 20, 400);
+
+            whisperBaseRadius = b
+                    .comment("Base detection radius (blocks) at 1 charge. Actual radius per emission =",
+                            "base * (0.5 + charges * per_charge). Zero charges emit nothing.")
+                    .defineInRange("base_radius", 64.0, 8.0, 512.0);
+
+            whisperRadiusPerCharge = b
+                    .comment("Per-charge multiplier added to the radius scale. Default 0.1: at 10 charges",
+                            "the audible radius is base * 1.5.")
+                    .defineInRange("radius_per_charge", 0.1, 0.0, 1.0);
+
+            whisperMaxVolume = b
+                    .comment("Source volume at 10 charges. Volume scales linearly from 0 (silent) to this",
+                            "at max charges. Vanilla treats volume>1 as an extended audible range.")
+                    .defineInRange("max_volume", 6.0, 0.1, 16.0);
+
+            whisperPositionJitter = b
+                    .comment("Maximum random offset (blocks) applied to the reported emitter position on",
+                            "each broadcast, in each axis. Prevents pinpointing by turning in place.")
+                    .defineInRange("position_jitter", 3.0, 0.0, 32.0);
+
+            b.pop();
 
             b.pop();
         }

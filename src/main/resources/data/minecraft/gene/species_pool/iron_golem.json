@@ -3,6 +3,8 @@
     {"perk": "dynetech:vitality", "weight": 8},
     {"perk": "dynetech:brawn", "weight": 6},
     {"perk": "dynetech:stoneskin", "weight": 6},
-    {"perk": "dynetech:bulwark", "weight": 5}
+    {"perk": "dynetech:bulwark", "weight": 5},
+    {"perk": "dynetech:composure", "weight": 4},
+    {"perk": "dynetech:ram", "weight": 3}
   ]
 }

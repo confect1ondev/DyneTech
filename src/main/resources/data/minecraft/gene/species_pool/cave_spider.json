@@ -2,6 +2,8 @@
   "entries": [
     {"perk": "dynetech:fleetfoot", "weight": 4},
     {"perk": "dynetech:nocturnal", "weight": 3},
+    {"perk": "dynetech:venom_touch", "weight": 4},
+    {"perk": "dynetech:poison_immune", "weight": 3},
     {"perk": "dynetech:invisibility", "weight": 2}
   ]
 }

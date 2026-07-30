@@ -36,5 +36,28 @@ public final class DTAttachments {
                             .serialize(Codec.LONG)
                             .build());
 
+    /**
+     * Godhood state - regeneration charges + timers for the in-place regeneration and post-regen
+     * vulnerability window. Persists across sessions and dimension change but resets on a true
+     * death like the equipped-perks attachment (respawned entity starts fresh).
+     */
+    public static final Supplier<AttachmentType<GodhoodState>> GODHOOD_STATE =
+            ATTACHMENT_TYPES.register("godhood_state",
+                    () -> AttachmentType.builder(() -> GodhoodState.EMPTY)
+                            .serialize(GodhoodState.CODEC)
+                            .build());
+
+    /**
+     * Marks an entity as a valid essence source for the Godhood gene. A god killing a marked
+     * entity earns a charge through the same {@code tryGrantEssence} path a player kill goes
+     * through. Only spawned via the {@code /dynetech godhood spawn_dummy} command; not used
+     * anywhere in the survival pipeline.
+     */
+    public static final Supplier<AttachmentType<Boolean>> TEST_ESSENCE_TARGET =
+            ATTACHMENT_TYPES.register("test_essence_target",
+                    () -> AttachmentType.builder(() -> Boolean.FALSE)
+                            .serialize(Codec.BOOL)
+                            .build());
+
     private DTAttachments() {}
 }

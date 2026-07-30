@@ -23,6 +23,14 @@ public class DTSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> PYM_PARTICLE_ENLARGING_UNDERWATER =
             make("misc.pym_particle_enlarging_underwater");
 
+    /** 65-second cue: 5s burn-up, moment of regeneration, then 60s of vulnerability. */
+    public static final DeferredHolder<SoundEvent, SoundEvent> GODHOOD_REGEN =
+            make("godhood.regen");
+
+    /** Short loopable ambience. Emitted by every godhood-carrying entity with charges. */
+    public static final DeferredHolder<SoundEvent, SoundEvent> GODHOOD_WHISPERS =
+            make("godhood.whispers");
+
     private static DeferredHolder<SoundEvent, SoundEvent> make(String name) {
         return SOUNDS.register(name, () -> SoundEvent.createVariableRangeEvent(DyneTech.id(name)));
     }

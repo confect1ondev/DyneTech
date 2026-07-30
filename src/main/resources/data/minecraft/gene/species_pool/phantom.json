@@ -1,6 +1,7 @@
 {
   "entries": [
     {"perk": "dynetech:hollowbones", "weight": 9},
+    {"perk": "dynetech:slow_fall", "weight": 4},
     {"perk": "dynetech:nocturnal", "weight": 5},
     {"perk": "dynetech:fleetfoot", "weight": 3},
     {"perk": "dynetech:invisibility", "weight": 3}

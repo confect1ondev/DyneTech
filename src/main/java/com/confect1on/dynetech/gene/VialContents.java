@@ -40,6 +40,15 @@ public record VialContents(
     public static final VialContents EMPTY =
             new VialContents(VialState.EMPTY, List.of(), Optional.empty(), Optional.empty(), Optional.empty(), Optional.empty());
 
+    /**
+     * Synthetic donor type used exclusively by op-issued {@code /dynetech vial} outputs. A vial
+     * carrying this donor type bypasses the injection compatibility check in
+     * {@link PerkLifecycle}, so a creative-mode serum works on any target regardless of species
+     * or player identity. Not producible by the sequencer, splicer, or blood-draw pipeline.
+     */
+    public static final ResourceLocation UNIVERSAL_DONOR_TYPE =
+            ResourceLocation.fromNamespaceAndPath("dynetech", "universal");
+
     public static final Codec<VialContents> CODEC = RecordCodecBuilder.create(inst -> inst.group(
             VialState.CODEC.fieldOf("state").forGetter(VialContents::state),
             PerkEntry.CODEC.listOf().fieldOf("perks").forGetter(VialContents::perks),

@@ -22,5 +22,17 @@
       "dynetech:misc/pym_particle_enlarging_underwater"
     ],
     "subtitle": "subtitles.dynetech.misc.pym_particle_enlarging_underwater"
+  },
+  "godhood.regen": {
+    "sounds": [
+      "dynetech:godhood/regen"
+    ],
+    "subtitle": "subtitles.dynetech.godhood.regen"
+  },
+  "godhood.whispers": {
+    "sounds": [
+      "dynetech:godhood/whispers"
+    ],
+    "subtitle": "subtitles.dynetech.godhood.whispers"
   }
 }

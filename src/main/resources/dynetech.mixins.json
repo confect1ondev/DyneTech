@@ -5,6 +5,9 @@
   "mixins": [
     "EntityInvisibleToMixin"
   ],
+  "client": [
+    "HumanoidModelBurnupMixin"
+  ],
   "injectors": {
     "defaultRequire": 1
   }

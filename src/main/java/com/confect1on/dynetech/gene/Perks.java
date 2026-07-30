@@ -17,16 +17,21 @@ import com.confect1on.dynetech.gene.perks.BaneOfUndeadPerk;
 import com.confect1on.dynetech.gene.perks.BloodthirstPerk;
 import com.confect1on.dynetech.gene.perks.CactusSkinPerk;
 import com.confect1on.dynetech.gene.perks.CamouflagePerk;
+import com.confect1on.dynetech.gene.perks.EnderBlinkPerk;
 import com.confect1on.dynetech.gene.perks.ExplosiveDeathPerk;
 import com.confect1on.dynetech.gene.perks.GluttonyDefect;
+import com.confect1on.dynetech.gene.perks.GodhoodPerk;
 import com.confect1on.dynetech.gene.perks.IgnitionDefect;
+import com.confect1on.dynetech.gene.perks.ImmunityPerk;
 import com.confect1on.dynetech.gene.perks.MobEffectPerk;
 import com.confect1on.dynetech.gene.perks.NoOpPerk;
 import com.confect1on.dynetech.gene.perks.PhotophobiaDefect;
 import com.confect1on.dynetech.gene.perks.PhotosynthesisPerk;
 import com.confect1on.dynetech.gene.perks.ScalePerk;
 import com.confect1on.dynetech.gene.perks.ScreamerDefect;
+import com.confect1on.dynetech.gene.perks.SlimeBouncePerk;
 import com.confect1on.dynetech.gene.perks.StaticDefect;
+import com.confect1on.dynetech.gene.perks.VenomTouchPerk;
 import com.confect1on.dynetech.gene.perks.VertigoDefect;
 import org.jetbrains.annotations.Nullable;
 
@@ -113,6 +118,24 @@ public final class Perks {
             ChatFormatting.DARK_GREEN, Attributes.BLOCK_BREAK_SPEED, 0.30D, AttributeModifier.Operation.ADD_MULTIPLIED_BASE, 0x556633,
             Set.of(PerkCondition.ALWAYS, PerkCondition.NOT_MOVING, PerkCondition.USING_ITEM, PerkCondition.SNEAKING, PerkCondition.DAY));
 
+    // Vanilla player step height is 0.6; +0.4 lands at exactly 1.0 so climbers can walk up a
+    // full block without jumping. Anything higher starts to look glitchy on stairs.
+    public static final DeferredHolder<Perk, AttributePerk> CLIMBER = attribute("climber",
+            ChatFormatting.GOLD, Attributes.STEP_HEIGHT, 0.40D, AttributeModifier.Operation.ADD_VALUE, 0xAA8844,
+            Set.of(PerkCondition.ALWAYS, PerkCondition.SPRINTING, PerkCondition.SNEAKING, PerkCondition.USING_ITEM));
+
+    // +1.5 knockback at full quality sends light mobs flying. Reads as a distinct-from-Brawn
+    // pressure tool rather than a damage upgrade.
+    public static final DeferredHolder<Perk, AttributePerk> RAM = attribute("ram",
+            ChatFormatting.RED, Attributes.ATTACK_KNOCKBACK, 1.5D, AttributeModifier.Operation.ADD_VALUE, 0xDD6633,
+            Set.of(PerkCondition.ALWAYS, PerkCondition.SPRINTING, PerkCondition.HIGH_HEALTH, PerkCondition.USING_ITEM));
+
+    // ADD_MULTIPLIED_BASE because attack speed's base value is 4.0 and a flat +0.3 would be a
+    // rounding error. +30% base is one extra swing every four seconds and reads on the cooldown bar.
+    public static final DeferredHolder<Perk, AttributePerk> SWIFT_STRIKE = attribute("swift_strike",
+            ChatFormatting.YELLOW, Attributes.ATTACK_SPEED, 0.30D, AttributeModifier.Operation.ADD_MULTIPLIED_BASE, 0xEEDD44,
+            Set.of(PerkCondition.ALWAYS, PerkCondition.SPRINTING, PerkCondition.LOW_HEALTH, PerkCondition.HIGH_HEALTH));
+
     // ============================================================================
     //  Mob-effect perks
     // ============================================================================
@@ -141,11 +164,41 @@ public final class Perks {
             ChatFormatting.GREEN, MobEffects.LUCK, 1, false, 0x66DD66,
             Set.of(PerkCondition.ALWAYS, PerkCondition.SNEAKING, PerkCondition.DAY, PerkCondition.USING_ITEM));
 
+    // Amplifier capped at 1 so a pristine roll can push to Resistance II. Higher tiers make the
+    // host nearly untouchable in combination with Bulwark/Stoneskin.
+    public static final DeferredHolder<Perk, MobEffectPerk> COMPOSURE = mobEffect("composure",
+            ChatFormatting.WHITE, MobEffects.DAMAGE_RESISTANCE, 1, false, 0xC8CCE0,
+            Set.of(PerkCondition.ALWAYS, PerkCondition.LOW_HEALTH, PerkCondition.HIGH_HEALTH, PerkCondition.NOT_MOVING));
+
+    // FALLING included so a sequenced serum can express only mid-air. Amplifier capped at 0:
+    // Slow Falling II is not a thing vanilla exposes and higher values would be no-ops.
+    public static final DeferredHolder<Perk, MobEffectPerk> SLOW_FALL = mobEffect("slow_fall",
+            ChatFormatting.WHITE, MobEffects.SLOW_FALLING, 0, false, 0xEEEEFF,
+            Set.of(PerkCondition.ALWAYS, PerkCondition.FALLING, PerkCondition.SNEAKING, PerkCondition.LOW_HEALTH));
+
     // Chameleon uses our camouflage marker effect so the client-side render hook can draw the
     // entity translucent, rather than fully invisible like vanilla INVISIBILITY.
     public static final DeferredHolder<Perk, CamouflagePerk> INVISIBILITY = REGISTRAR.register("invisibility",
             id -> new CamouflagePerk(id, 0x554488,
                     Set.of(PerkCondition.ALWAYS, PerkCondition.SNEAKING, PerkCondition.NIGHT, PerkCondition.NOT_MOVING, PerkCondition.ALONE)));
+
+    // ============================================================================
+    //  Immunity perks
+    //   Each guards one specific mob effect. Effect strips happen on tick, so a hostile source
+    //   can still apply the icon for up to one tick before the perk clears it.
+    // ============================================================================
+
+    public static final DeferredHolder<Perk, ImmunityPerk> POISON_IMMUNE = immunity("poison_immune",
+            ChatFormatting.DARK_GREEN, MobEffects.POISON, 0x55AA55,
+            Set.of(PerkCondition.ALWAYS, PerkCondition.SNEAKING, PerkCondition.LOW_HEALTH, PerkCondition.ALONE));
+
+    public static final DeferredHolder<Perk, ImmunityPerk> WITHER_IMMUNE = immunity("wither_immune",
+            ChatFormatting.DARK_PURPLE, MobEffects.WITHER, 0x554455,
+            Set.of(PerkCondition.ALWAYS, PerkCondition.SNEAKING, PerkCondition.LOW_HEALTH, PerkCondition.NIGHT));
+
+    public static final DeferredHolder<Perk, ImmunityPerk> LEVITATION_IMMUNE = immunity("levitation_immune",
+            ChatFormatting.DARK_AQUA, MobEffects.LEVITATION, 0x336677,
+            Set.of(PerkCondition.ALWAYS, PerkCondition.FALLING, PerkCondition.SNEAKING, PerkCondition.NIGHT));
 
     // ============================================================================
     //  Scale perks
@@ -178,6 +231,15 @@ public final class Perks {
             REGISTRAR.register("cactus_skin", CactusSkinPerk::new);
     public static final DeferredHolder<Perk, ExplosiveDeathPerk> EXPLOSIVE_DEATH =
             REGISTRAR.register("explosive_death", ExplosiveDeathPerk::new);
+    public static final DeferredHolder<Perk, SlimeBouncePerk> SLIME_BOUNCE =
+            REGISTRAR.register("slime_bounce", SlimeBouncePerk::new);
+    public static final DeferredHolder<Perk, EnderBlinkPerk> ENDER_BLINK =
+            REGISTRAR.register("ender_blink", EnderBlinkPerk::new);
+    public static final DeferredHolder<Perk, VenomTouchPerk> VENOM_TOUCH =
+            REGISTRAR.register("venom_touch", VenomTouchPerk::new);
+
+    public static final DeferredHolder<Perk, GodhoodPerk> GODHOOD =
+            REGISTRAR.register("godhood", GodhoodPerk::new);
 
     // ============================================================================
     //  Defects
@@ -243,6 +305,13 @@ public final class Perks {
                                                                  Set<PerkCondition> allowedConditions) {
         return REGISTRAR.register(path,
                 id -> new MobEffectPerk(id, name(path, color), effect, maxAmplifier, defect, tint, allowedConditions));
+    }
+
+    private static DeferredHolder<Perk, ImmunityPerk> immunity(String path, ChatFormatting color,
+                                                                net.minecraft.core.Holder<net.minecraft.world.effect.MobEffect> guarded,
+                                                                int tint, Set<PerkCondition> allowedConditions) {
+        return REGISTRAR.register(path,
+                id -> new ImmunityPerk(id, name(path, color), tint, guarded, allowedConditions));
     }
 
     private static Component name(String key, ChatFormatting color) {

@@ -1,6 +1,8 @@
 {
   "entries": [
     {"perk": "dynetech:leap", "weight": 5},
+    {"perk": "dynetech:slime_bounce", "weight": 5},
+    {"perk": "dynetech:cushion", "weight": 3},
     {"perk": "dynetech:stoneskin", "weight": 3}
   ]
 }

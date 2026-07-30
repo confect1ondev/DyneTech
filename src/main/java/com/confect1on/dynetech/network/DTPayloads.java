@@ -77,6 +77,25 @@ public final class DTPayloads {
                 (payload, ctx) -> ctx.enqueueWork(() ->
                         com.confect1on.dynetech.client.DiscoPulseManager.trigger(payload.entityId())));
 
+        registrar.playToClient(
+                GodhoodRegenStart.TYPE,
+                GodhoodRegenStart.STREAM_CODEC,
+                (payload, ctx) -> ctx.enqueueWork(() ->
+                        com.confect1on.dynetech.client.GodhoodBurnupManager.start(payload.entityId(), payload.durationTicks())));
+
+        registrar.playToClient(
+                GodhoodChargeSync.TYPE,
+                GodhoodChargeSync.STREAM_CODEC,
+                (payload, ctx) -> ctx.enqueueWork(() ->
+                        com.confect1on.dynetech.client.GodhoodBurnupManager.updateCharges(payload.charges(), payload.max())));
+
+        registrar.playToClient(
+                GodhoodDetonation.TYPE,
+                GodhoodDetonation.STREAM_CODEC,
+                (payload, ctx) -> ctx.enqueueWork(() ->
+                        com.confect1on.dynetech.client.GodhoodShockwaveManager.trigger(
+                                payload.entityId(), payload.innerRadius(), payload.outerRadius())));
+
         registrar.playToServer(
                 InjectSelfWithGun.TYPE,
                 InjectSelfWithGun.STREAM_CODEC,
@@ -163,6 +182,55 @@ public final class DTPayloads {
         public static final Type<SpawnPulses> TYPE = new Type<>(DyneTech.id("spawn_pulses"));
         public static final StreamCodec<FriendlyByteBuf, SpawnPulses> STREAM_CODEC =
                 StreamCodec.composite(ByteBufCodecs.VAR_INT, SpawnPulses::entityId, SpawnPulses::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+
+    /**
+     * Kicks off the burn-up render + particle spam for the target entity on all clients that
+     * received this packet (all tracking players of that entity). Duration in ticks so the
+     * client knows when to stop; server also fires the completion effects independently.
+     */
+    public record GodhoodRegenStart(int entityId, int durationTicks) implements CustomPacketPayload {
+        public static final Type<GodhoodRegenStart> TYPE = new Type<>(DyneTech.id("godhood_regen_start"));
+        public static final StreamCodec<FriendlyByteBuf, GodhoodRegenStart> STREAM_CODEC =
+                StreamCodec.composite(
+                        ByteBufCodecs.VAR_INT, GodhoodRegenStart::entityId,
+                        ByteBufCodecs.VAR_INT, GodhoodRegenStart::durationTicks,
+                        GodhoodRegenStart::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+
+    /**
+     * Sent from server the moment the blast fires, driving the client-side expanding shockwave
+     * rings so the visible thresholds line up with the actual damage tick (not the client's
+     * best guess based on when GodhoodRegenStart arrived). Carries the radii explicitly so the
+     * animation matches whatever the server used, even if tuning changes.
+     */
+    public record GodhoodDetonation(int entityId, float innerRadius, float outerRadius) implements CustomPacketPayload {
+        public static final Type<GodhoodDetonation> TYPE = new Type<>(DyneTech.id("godhood_detonation"));
+        public static final StreamCodec<FriendlyByteBuf, GodhoodDetonation> STREAM_CODEC =
+                StreamCodec.composite(
+                        ByteBufCodecs.VAR_INT, GodhoodDetonation::entityId,
+                        ByteBufCodecs.FLOAT, GodhoodDetonation::innerRadius,
+                        ByteBufCodecs.FLOAT, GodhoodDetonation::outerRadius,
+                        GodhoodDetonation::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+
+    /** Personal action-bar update so a god sees their own remaining regeneration charges. */
+    public record GodhoodChargeSync(int charges, int max) implements CustomPacketPayload {
+        public static final Type<GodhoodChargeSync> TYPE = new Type<>(DyneTech.id("godhood_charge_sync"));
+        public static final StreamCodec<FriendlyByteBuf, GodhoodChargeSync> STREAM_CODEC =
+                StreamCodec.composite(
+                        ByteBufCodecs.VAR_INT, GodhoodChargeSync::charges,
+                        ByteBufCodecs.VAR_INT, GodhoodChargeSync::max,
+                        GodhoodChargeSync::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() { return TYPE; }

@@ -15,12 +15,14 @@ import net.neoforged.neoforge.event.tick.EntityTickEvent;
 import net.neoforged.neoforge.fluids.capability.wrappers.FluidBucketWrapper;
 import com.confect1on.dynetech.block.DTBlocks;
 import com.confect1on.dynetech.blockentity.DTBlockEntities;
+import com.confect1on.dynetech.command.DTCommands;
 import com.confect1on.dynetech.component.DTDataComponents;
 import com.confect1on.dynetech.config.DTConfig;
 import com.confect1on.dynetech.entity.DTEntityTypes;
 import com.confect1on.dynetech.fluid.DTFluids;
 import com.confect1on.dynetech.effect.DTEffects;
 import com.confect1on.dynetech.gene.DTAttachments;
+import com.confect1on.dynetech.gene.GodhoodEvents;
 import com.confect1on.dynetech.gene.PerkLifecycle;
 import com.confect1on.dynetech.gene.PerkEvents;
 import com.confect1on.dynetech.gene.Perks;
@@ -62,16 +64,42 @@ public class DyneTech {
         // perks reattach and refresh timers restart cleanly.
         NeoForge.EVENT_BUS.addListener(DyneTech::onPlayerChangedDimension);
         NeoForge.EVENT_BUS.addListener(DyneTech::onPlayerLoggedIn);
-        // Damage/death dispatch for event-driven perks (Bloodthirst, Bane, Cactus, Explosive Death).
-        // PerkEvents.onDeath also wipes the attachment at the end so a respawning player, or a
-        // mob revived by a totem/other mod, starts from a clean genome.
+        // Damage/death dispatch for event-driven perks (Bloodthirst, Bane, Cactus, Explosive
+        // Death, Ender Blink, Venom Touch). PerkEvents.onDeath also wipes the attachment at the
+        // end so a respawning player, or a mob revived by a totem/other mod, starts from a clean
+        // genome.
         NeoForge.EVENT_BUS.addListener(PerkEvents::onIncomingDamage);
         NeoForge.EVENT_BUS.addListener(PerkEvents::onPostDamage);
         NeoForge.EVENT_BUS.addListener(PerkEvents::onDeath);
         // AbsorptionPerk timer: stamp the last-damaged tick whenever a live entity takes damage.
         NeoForge.EVENT_BUS.addListener(PerkEvents::onDamageStampTimer);
+        // Slime Bounce: negates fall damage and launches the host back up on landing.
+        NeoForge.EVENT_BUS.addListener(PerkEvents::onLivingFall);
+        // Godhood gene: intercept death to trigger regeneration, count essence kills, drive the
+        // 5s burn-up + 60s vulnerability timers. Kept as its own listener bundle because Godhood
+        // is the only stateful perk and folding it into PerkEvents would double the file's size.
+        //
+        // HIGHEST priority on the death intercept so it beats PerkEvents.onDeath, which
+        // otherwise strips the Godhood perk (via clearAllPerks) before we get to check for it.
+        NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.HIGHEST,
+                GodhoodEvents::onGodhoodDeath);
+        NeoForge.EVENT_BUS.addListener(GodhoodEvents::onEssenceKill);
+        NeoForge.EVENT_BUS.addListener(GodhoodEvents::onIncomingDamage);
+        NeoForge.EVENT_BUS.addListener(GodhoodEvents::onHeal);
+        NeoForge.EVENT_BUS.addListener(GodhoodEvents::onEntityTick);
+        NeoForge.EVENT_BUS.addListener(GodhoodEvents::onLogin);
+        NeoForge.EVENT_BUS.addListener(GodhoodEvents::onDimensionChange);
+        NeoForge.EVENT_BUS.addListener(GodhoodEvents::onLogout);
+        // HIGHEST priority, registered AFTER onGodhoodDeath so the ordering is
+        // onGodhoodDeath -> onGodhoodDeathStopWhispers -> PerkEvents.onDeath. That last step
+        // strips the perks via clearAllPerks, so we must read hasGodhood BEFORE it runs.
+        // Cancelled events are skipped by default, so a cheated death (onGodhoodDeath sets
+        // canceled) also skips the stop, which is what we want.
+        NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.HIGHEST,
+                GodhoodEvents::onGodhoodDeathStopWhispers);
         // Species pool is a datapack reload listener so pack authors can override any mob's pool.
         NeoForge.EVENT_BUS.addListener(DyneTech::onAddReloadListeners);
+        NeoForge.EVENT_BUS.addListener(DyneTech::onRegisterCommands);
 
         container.registerConfig(ModConfig.Type.SERVER, DTConfig.SPEC);
     }
@@ -99,6 +127,10 @@ public class DyneTech {
 
     private static void onAddReloadListeners(AddReloadListenerEvent event) {
         event.addListener(SpeciesPool.instance());
+    }
+
+    private static void onRegisterCommands(net.neoforged.neoforge.event.RegisterCommandsEvent event) {
+        DTCommands.register(event.getDispatcher(), event.getBuildContext());
     }
 
     // Exposes the buckets as item fluid handlers so other mods (tanks, pipes) can drain/fill them.

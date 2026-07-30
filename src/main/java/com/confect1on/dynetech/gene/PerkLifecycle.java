@@ -104,10 +104,15 @@ public final class PerkLifecycle {
      * Blood-carrier compatibility gate. Player serums lock to their specific donor UUID; mob
      * serums lock to the donor's {@link net.minecraft.world.entity.EntityType}. A SERUM without
      * a donor type is malformed and is refused.
+     *
+     * <p>Exception: the {@link VialContents#UNIVERSAL_DONOR_TYPE} sentinel donor type is used by
+     * op-issued command vials to skip the donor lock entirely. Not producible by any in-game
+     * pipeline (sequencer, splicer, blood draw), so this doesn't open a survival exploit.
      */
     private static boolean isCompatible(LivingEntity target, VialContents serum) {
         ResourceLocation donorTypeId = serum.donorType().orElse(null);
         if (donorTypeId == null) return false;
+        if (VialContents.UNIVERSAL_DONOR_TYPE.equals(donorTypeId)) return true;
 
         ResourceLocation playerTypeId = BuiltInRegistries.ENTITY_TYPE.getKey(net.minecraft.world.entity.EntityType.PLAYER);
         boolean donorWasPlayer = donorTypeId.equals(playerTypeId);

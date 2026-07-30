@@ -1,6 +1,7 @@
 {
   "entries": [
     {"perk": "dynetech:brawn", "weight": 5},
+    {"perk": "dynetech:swift_strike", "weight": 3},
     {"perk": "dynetech:bloodthirst", "weight": 3}
   ]
 }

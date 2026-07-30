@@ -99,6 +99,18 @@
   "dynetech.perk.desc.static_defect": "Draws lightning strikes every few seconds when caught outdoors during a thunderstorm.",
   "dynetech.perk.desc.vertigo_defect": "Nausea sets in whenever a ledge dropping more than 3 blocks is within 5 blocks.",
   "dynetech.perk.desc.dud": "No effect. Player self-samples always sequence into duds.",
+  "dynetech.perk.desc.climber": "Adds up to +0.4 step height. Walk up a full block without jumping.",
+  "dynetech.perk.desc.ram": "Adds up to +1.5 attack knockback. Sends light targets flying.",
+  "dynetech.perk.desc.swift_strike": "Attack speed +30% at pristine.",
+  "dynetech.perk.desc.composure": "Grants Resistance, up to amplifier II.",
+  "dynetech.perk.desc.slow_fall": "Grants Slow Falling while equipped.",
+  "dynetech.perk.desc.poison_immune": "Strips incoming Poison before it can tick.",
+  "dynetech.perk.desc.wither_immune": "Strips incoming Wither before it can tick.",
+  "dynetech.perk.desc.levitation_immune": "Strips incoming Levitation before it can lift you.",
+  "dynetech.perk.desc.slime_bounce": "Cancels fall damage on landing and launches you back up.",
+  "dynetech.perk.desc.ender_blink": "Chance to teleport a short distance when hit. Damage still applies.",
+  "dynetech.perk.desc.venom_touch": "Melee hits poison the target for a few seconds.",
+  "dynetech.perk.desc.godhood": "Cheats death: burns up for 5s, unleashes a blast wave, then revives. Stockpile up to 10 charges by killing other players. Killed during the 60s window afterwards? True death - genes lost.",
 
   "dynetech.condition.desc.always": "Perk expresses continuously.",
   "dynetech.condition.desc.sneaking": "Only expresses while the host is crouched.",
@@ -168,6 +180,18 @@
   "dynetech.perk.screamer_defect": "Screamer",
   "dynetech.perk.static_defect": "Static Charge",
   "dynetech.perk.vertigo_defect": "Vertigo",
+  "dynetech.perk.climber": "Climber",
+  "dynetech.perk.ram": "Ram",
+  "dynetech.perk.swift_strike": "Swift Strike",
+  "dynetech.perk.composure": "Composure",
+  "dynetech.perk.slow_fall": "Feather Descent",
+  "dynetech.perk.poison_immune": "Antivenom",
+  "dynetech.perk.wither_immune": "Necrosis Resistance",
+  "dynetech.perk.levitation_immune": "Anchor",
+  "dynetech.perk.slime_bounce": "Slime Bounce",
+  "dynetech.perk.ender_blink": "Ender Blink",
+  "dynetech.perk.venom_touch": "Venom Touch",
+  "dynetech.perk.godhood": "Godhood",
 
   "dynetech.condition.always": "Always",
   "dynetech.condition.sneaking": "Only while sneaking",
@@ -206,5 +230,14 @@
 
   "dynetech.inject.gained": "Gained: %s (%s)",
   "dynetech.inject.defect": "Defect: %s",
-  "dynetech.inject.incompatible": "Serum rejected — target does not match the blood's donor."
+  "dynetech.inject.incompatible": "Serum rejected. Target does not match the blood's donor.",
+
+  "subtitles.dynetech.godhood.regen": "A god burns",
+  "subtitles.dynetech.godhood.whispers": "Divine whispers",
+
+  "dynetech.godhood.vulnerable": "Vulnerable: %ss",
+  "dynetech.godhood.hud": "Regenerations: %s / %s",
+  "dynetech.godhood.true_death": "You died a true death. Your genome is gone.",
+  "death.attack.dynetech.godhood_blast": "%1$s was caught in a regeneration blast",
+  "death.attack.dynetech.godhood_blast.player": "%1$s was caught in %2$s's regeneration blast"
 }
