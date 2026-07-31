@@ -41,6 +41,11 @@ public final class DTConfig {
             "minecraft:overworld -8 -64 -8 7 319 7"
     );
 
+    // 16x16 spawn zone in the overworld, bedrock to build limit. Sensible default AND doc example.
+    private static final List<String> DEFAULT_PROTECTED_REGIONS = List.of(
+            "minecraft:overworld -8 -64 -8 7 319 7"
+    );
+
     private static final List<String> DEFAULT_BLACKLIST = List.of(
             "minecraft:bedrock",
             "minecraft:barrier",
