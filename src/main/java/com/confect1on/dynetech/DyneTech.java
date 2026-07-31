@@ -19,6 +19,9 @@ import com.confect1on.dynetech.command.DTCommands;
 import com.confect1on.dynetech.component.DTDataComponents;
 import com.confect1on.dynetech.config.DTConfig;
 import com.confect1on.dynetech.entity.DTEntityTypes;
+import com.confect1on.dynetech.entity.UsherEntity;
+import com.confect1on.dynetech.entity.VigilEntity;
+import net.neoforged.neoforge.event.entity.EntityAttributeCreationEvent;
 import com.confect1on.dynetech.fluid.DTFluids;
 import com.confect1on.dynetech.effect.DTEffects;
 import com.confect1on.dynetech.gene.DTAttachments;
@@ -56,6 +59,7 @@ public class DyneTech {
         modBus.addListener(DTPayloads::register);
         modBus.addListener(DyneTech::registerCapabilities);
         modBus.addListener(DyneTech::onCommonSetup);
+        modBus.addListener(DyneTech::onEntityAttributeCreation);
 
         // Game-bus listeners for gene tick + perk reapply.
         NeoForge.EVENT_BUS.addListener(DyneTech::onEntityTick);
@@ -109,6 +113,11 @@ public class DyneTech {
      * JSON. Kept as a hook in case future setup steps need enqueued work on the main thread.
      */
     private static void onCommonSetup(FMLCommonSetupEvent event) {
+    }
+
+    private static void onEntityAttributeCreation(EntityAttributeCreationEvent event) {
+        event.put(DTEntityTypes.VIGIL.get(), VigilEntity.createAttributes().build());
+        event.put(DTEntityTypes.USHER.get(), UsherEntity.createAttributes().build());
     }
 
     private static void onEntityTick(EntityTickEvent.Post event) {

@@ -29,6 +29,13 @@ import com.confect1on.dynetech.client.renderer.ShrunkenEntityEntityRenderer;
 import com.confect1on.dynetech.client.renderer.ShrunkenStructureBEWLR;
 import com.confect1on.dynetech.client.renderer.ShrunkenStructureEntityRenderer;
 import com.confect1on.dynetech.client.renderer.StructureShrinkerBlockEntityRenderer;
+import com.confect1on.dynetech.client.renderer.SpinningDiscRenderer;
+import com.confect1on.dynetech.client.renderer.UsherModel;
+import com.confect1on.dynetech.client.renderer.UsherRenderer;
+import com.confect1on.dynetech.client.renderer.VigilModel;
+import com.confect1on.dynetech.client.renderer.VigilRenderer;
+import com.confect1on.dynetech.entity.ThrownPhaseDiskEntity;
+import net.neoforged.neoforge.client.event.EntityRenderersEvent.RegisterLayerDefinitions;
 import com.confect1on.dynetech.client.screen.CryoPreservatorScreen;
 import com.confect1on.dynetech.client.screen.GeneMicroscopeScreen;
 import com.confect1on.dynetech.client.screen.GeneSequencerScreen;
@@ -53,7 +60,18 @@ public class DTClient {
             event.registerEntityRenderer(DTEntityTypes.PYM_PARTICLE_DISC.get(), PymParticleDiscRenderer::new);
             event.registerEntityRenderer(DTEntityTypes.SHRUNKEN_STRUCTURE.get(), ShrunkenStructureEntityRenderer::new);
             event.registerEntityRenderer(DTEntityTypes.SHRUNKEN_ENTITY.get(), ShrunkenEntityEntityRenderer::new);
+            event.registerEntityRenderer(DTEntityTypes.VIGIL.get(), VigilRenderer::new);
+            event.registerEntityRenderer(DTEntityTypes.USHER.get(), UsherRenderer::new);
+            event.registerEntityRenderer(DTEntityTypes.THROWN_PHASE_DISK.get(),
+                    ctx -> new SpinningDiscRenderer<ThrownPhaseDiskEntity>(ctx));
             event.registerBlockEntityRenderer(DTBlockEntities.STRUCTURE_SHRINKER.get(), StructureShrinkerBlockEntityRenderer::new);
+        }
+
+        @SubscribeEvent
+        public static void registerLayerDefinitions(RegisterLayerDefinitions event) {
+            event.registerLayerDefinition(VigilRenderer.MODEL_LAYER, () -> VigilModel.createBodyLayer(false));
+            event.registerLayerDefinition(VigilRenderer.MODEL_LAYER_SLIM, () -> VigilModel.createBodyLayer(true));
+            event.registerLayerDefinition(UsherRenderer.MODEL_LAYER, UsherModel::createBodyLayer);
         }
 
         @SubscribeEvent

@@ -39,12 +39,21 @@ public final class DiscoPulseManager {
     private static final int TOTAL_LIFETIME = (PULSE_COUNT - 1) * PULSE_STAGGER + PULSE_LIFETIME;
 
     private static final Map<Integer, Integer> START_TICKS = new HashMap<>();
+    // Per-entity RGB override. Absent = fall back to the Pehkui scale-based tint. Used by
+    // the Usher Departure so caught mobs flash purple regardless of their size.
+    private static final Map<Integer, Integer> COLOR_OVERRIDES = new HashMap<>();
     private static int clientTick = 0;
 
     private DiscoPulseManager() {}
 
     public static void trigger(int entityId) {
         START_TICKS.put(entityId, clientTick);
+    }
+
+    /** Trigger with a caller-supplied RGB tint (packed 0x00RRGGBB) that ignores Pehkui scale. */
+    public static void trigger(int entityId, int rgb) {
+        START_TICKS.put(entityId, clientTick);
+        COLOR_OVERRIDES.put(entityId, rgb & 0x00FFFFFF);
     }
 
     public static int getStartTick(int entityId) {
@@ -57,7 +66,11 @@ public final class DiscoPulseManager {
         clientTick++;
         Iterator<Map.Entry<Integer, Integer>> it = START_TICKS.entrySet().iterator();
         while (it.hasNext()) {
-            if (clientTick - it.next().getValue() > TOTAL_LIFETIME + 2) it.remove();
+            Map.Entry<Integer, Integer> entry = it.next();
+            if (clientTick - entry.getValue() > TOTAL_LIFETIME + 2) {
+                COLOR_OVERRIDES.remove(entry.getKey());
+                it.remove();
+            }
         }
     }
 
@@ -105,8 +118,8 @@ public final class DiscoPulseManager {
 
         int elapsed = clientTick - startTick;
         VertexConsumer vc = buffers.getBuffer(RenderType.entityTranslucent(WHITE_TEX));
-        float pehkui = PehkuiCompat.getScale(entity);
-        int tintRgb = getScaleTintRGB(pehkui);
+        Integer override = COLOR_OVERRIDES.get(entity.getId());
+        int tintRgb = override != null ? override : getScaleTintRGB(PehkuiCompat.getScale(entity));
         float bodyYaw = Mth.rotLerp(partialTick, entity.yBodyRotO, entity.yBodyRot);
 
         for (int i = 0; i < PULSE_COUNT; i++) {

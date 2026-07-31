@@ -78,6 +78,12 @@ public final class DTPayloads {
                         com.confect1on.dynetech.client.DiscoPulseManager.trigger(payload.entityId())));
 
         registrar.playToClient(
+                SpawnPulsesColored.TYPE,
+                SpawnPulsesColored.STREAM_CODEC,
+                (payload, ctx) -> ctx.enqueueWork(() ->
+                        com.confect1on.dynetech.client.DiscoPulseManager.trigger(payload.entityId(), payload.rgb())));
+
+        registrar.playToClient(
                 GodhoodRegenStart.TYPE,
                 GodhoodRegenStart.STREAM_CODEC,
                 (payload, ctx) -> ctx.enqueueWork(() ->
@@ -94,6 +100,13 @@ public final class DTPayloads {
                 GodhoodDetonation.STREAM_CODEC,
                 (payload, ctx) -> ctx.enqueueWork(() ->
                         com.confect1on.dynetech.client.GodhoodShockwaveManager.trigger(
+                                payload.entityId(), payload.innerRadius(), payload.outerRadius())));
+
+        registrar.playToClient(
+                UsherBlast.TYPE,
+                UsherBlast.STREAM_CODEC,
+                (payload, ctx) -> ctx.enqueueWork(() ->
+                        com.confect1on.dynetech.client.UsherBlastManager.trigger(
                                 payload.entityId(), payload.innerRadius(), payload.outerRadius())));
 
         registrar.playToServer(
@@ -188,6 +201,22 @@ public final class DTPayloads {
     }
 
     /**
+     * Fixed-color variant of {@link SpawnPulses}. Used by the Usher Departure so caught mobs
+     * flash a consistent purple regardless of their Pehkui scale.
+     */
+    public record SpawnPulsesColored(int entityId, int rgb) implements CustomPacketPayload {
+        public static final Type<SpawnPulsesColored> TYPE = new Type<>(DyneTech.id("spawn_pulses_colored"));
+        public static final StreamCodec<FriendlyByteBuf, SpawnPulsesColored> STREAM_CODEC =
+                StreamCodec.composite(
+                        ByteBufCodecs.VAR_INT, SpawnPulsesColored::entityId,
+                        ByteBufCodecs.VAR_INT, SpawnPulsesColored::rgb,
+                        SpawnPulsesColored::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+
+    /**
      * Kicks off the burn-up render + particle spam for the target entity on all clients that
      * received this packet (all tracking players of that entity). Duration in ticks so the
      * client knows when to stop; server also fires the completion effects independently.
@@ -218,6 +247,23 @@ public final class DTPayloads {
                         ByteBufCodecs.FLOAT, GodhoodDetonation::innerRadius,
                         ByteBufCodecs.FLOAT, GodhoodDetonation::outerRadius,
                         GodhoodDetonation::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+
+    /**
+     * Client-side trigger for the Usher's Departure blast ring visual - same expanding annulus
+     * technique as the Godhood shockwave but rendered in the Usher's black-and-purple palette.
+     */
+    public record UsherBlast(int entityId, float innerRadius, float outerRadius) implements CustomPacketPayload {
+        public static final Type<UsherBlast> TYPE = new Type<>(DyneTech.id("usher_blast"));
+        public static final StreamCodec<FriendlyByteBuf, UsherBlast> STREAM_CODEC =
+                StreamCodec.composite(
+                        ByteBufCodecs.VAR_INT, UsherBlast::entityId,
+                        ByteBufCodecs.FLOAT, UsherBlast::innerRadius,
+                        ByteBufCodecs.FLOAT, UsherBlast::outerRadius,
+                        UsherBlast::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() { return TYPE; }

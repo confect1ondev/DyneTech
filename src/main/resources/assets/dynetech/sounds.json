@@ -34,5 +34,23 @@
       "dynetech:godhood/whispers"
     ],
     "subtitle": "subtitles.dynetech.godhood.whispers"
+  },
+  "usher.charge": {
+    "sounds": [
+      "dynetech:usher/charge"
+    ],
+    "subtitle": "subtitles.dynetech.usher.charge"
+  },
+  "usher.blast": {
+    "sounds": [
+      "dynetech:usher/blast"
+    ],
+    "subtitle": "subtitles.dynetech.usher.blast"
+  },
+  "usher.easteregg": {
+    "sounds": [
+      "dynetech:usher/easteregg"
+    ],
+    "subtitle": "subtitles.dynetech.usher.blast"
   }
 }

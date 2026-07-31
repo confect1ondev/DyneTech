@@ -23,6 +23,12 @@
   "entity.dynetech.pym_particle_disc": "%s Particle Disc",
   "entity.dynetech.shrunken_structure": "Shrunken Structure",
   "entity.dynetech.shrunken_entity": "Shrunken Entity",
+  "entity.dynetech.vigil": "Vigil",
+  "entity.dynetech.usher": "Usher",
+  "entity.dynetech.thrown_phase_disk": "Phase Disk",
+  "item.dynetech.phase_disk": "Phase Disk",
+  "item.dynetech.vigil_spawn_egg": "Vigil Spawn Egg",
+  "item.dynetech.usher_spawn_egg": "Usher Spawn Egg",
 
   "subtitles.dynetech.misc.pym_particle_shrinking": "Entity shrinks",
   "subtitles.dynetech.misc.pym_particle_shrinking_underwater": "Entity shrinks",
@@ -247,6 +253,8 @@
 
   "subtitles.dynetech.godhood.regen": "A god burns",
   "subtitles.dynetech.godhood.whispers": "Divine whispers",
+  "subtitles.dynetech.usher.charge": "The Usher hums",
+  "subtitles.dynetech.usher.blast": "Departure",
 
   "dynetech.godhood.vulnerable": "Vulnerable: %ss",
   "dynetech.godhood.hud": "Regenerations: %s / %s",

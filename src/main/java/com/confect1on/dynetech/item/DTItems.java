@@ -7,10 +7,12 @@ import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.CreativeModeTabs;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Items;
+import net.neoforged.neoforge.common.DeferredSpawnEggItem;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import com.confect1on.dynetech.DyneTech;
 import com.confect1on.dynetech.block.DTBlocks;
+import com.confect1on.dynetech.entity.DTEntityTypes;
 import com.confect1on.dynetech.fluid.DTFluids;
 import com.confect1on.dynetech.fluid.PymParticleBucketItem;
 
@@ -60,6 +62,19 @@ public class DTItems {
     public static final DeferredHolder<Item, PerkCyclerItem> PERK_CYCLER =
             ITEMS.register("perk_cycler", () -> new PerkCyclerItem(new Item.Properties().stacksTo(1)));
 
+    public static final DeferredHolder<Item, PhaseDiskItem> PHASE_DISK =
+            ITEMS.register("phase_disk", () -> new PhaseDiskItem(new Item.Properties().stacksTo(16)));
+
+    // Test-only spawn egg. Natural spawning is out of scope for this pass.
+    public static final DeferredHolder<Item, DeferredSpawnEggItem> VIGIL_SPAWN_EGG =
+            ITEMS.register("vigil_spawn_egg", () -> new DeferredSpawnEggItem(
+                    DTEntityTypes.VIGIL, 0x8E8E86, 0x3B3B38, new Item.Properties()));
+
+    // Test-only spawn egg. Natural spawning is out of scope for this pass.
+    public static final DeferredHolder<Item, DeferredSpawnEggItem> USHER_SPAWN_EGG =
+            ITEMS.register("usher_spawn_egg", () -> new DeferredSpawnEggItem(
+                    DTEntityTypes.USHER, 0x1A0B1F, 0x7B2FBE, new Item.Properties()));
+
     public static final DeferredRegister<CreativeModeTab> CREATIVE_TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, DyneTech.MODID);
 
@@ -82,6 +97,9 @@ public class DTItems {
                 output.accept(DTBlocks.GENE_SPLICER.get());
                 output.accept(DTBlocks.GENE_MICROSCOPE.get());
                 output.accept(DTBlocks.CRYO_PRESERVATOR.get());
+                output.accept(PHASE_DISK.get());
+                output.accept(VIGIL_SPAWN_EGG.get());
+                output.accept(USHER_SPAWN_EGG.get());
                 // PerkCycler is a dev-only cycler: reachable via /give but not shown in the tab.
             })
             .build());

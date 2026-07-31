@@ -31,6 +31,18 @@ public class DTSounds {
     public static final DeferredHolder<SoundEvent, SoundEvent> GODHOOD_WHISPERS =
             make("godhood.whispers");
 
+    /** 15s buildup the Usher plays while charging its Departure. */
+    public static final DeferredHolder<SoundEvent, SoundEvent> USHER_CHARGE =
+            make("usher.charge");
+
+    /** Default Departure payoff, plays at the moment of the catch blast. */
+    public static final DeferredHolder<SoundEvent, SoundEvent> USHER_BLAST =
+            make("usher.blast");
+
+    /** 30% easter-egg substitute for USHER_BLAST at Departure time. */
+    public static final DeferredHolder<SoundEvent, SoundEvent> USHER_EASTEREGG =
+            make("usher.easteregg");
+
     private static DeferredHolder<SoundEvent, SoundEvent> make(String name) {
         return SOUNDS.register(name, () -> SoundEvent.createVariableRangeEvent(DyneTech.id(name)));
     }

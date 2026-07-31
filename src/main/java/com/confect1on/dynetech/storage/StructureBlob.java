@@ -42,16 +42,31 @@ public final class StructureBlob {
     private final List<BlockState> palette;
     private final int[] indices;
     private final Map<BlockPos, CompoundTag> blockEntities;
+    // When true, paste() leaves the world alone at air positions. The shrinker keeps the
+    // default (false) so hollow interiors overwrite the paste target as-is. The Usher opts
+    // in so its mostly-air pocket interior doesn't blast a hole in whatever it's grown onto.
+    private final boolean skipAirOnPaste;
 
     public StructureBlob(Vec3i size, List<BlockState> palette, int[] indices, Map<BlockPos, CompoundTag> blockEntities) {
+        this(size, palette, indices, blockEntities, false);
+    }
+
+    public StructureBlob(Vec3i size, List<BlockState> palette, int[] indices,
+                         Map<BlockPos, CompoundTag> blockEntities, boolean skipAirOnPaste) {
         this.size = size;
         this.palette = palette;
         this.indices = indices;
         this.blockEntities = blockEntities;
+        this.skipAirOnPaste = skipAirOnPaste;
     }
 
     public Vec3i size() { return size; }
     public boolean isEmpty() { return palette.stream().allMatch(BlockState::isAir); }
+
+    /** Returns a copy of this blob with {@link #skipAirOnPaste} set. */
+    public StructureBlob withSkipAirOnPaste() {
+        return new StructureBlob(this.size, this.palette, this.indices, this.blockEntities, true);
+    }
 
     public BlockState getBlockState(int x, int y, int z) {
         if (x < 0 || y < 0 || z < 0
@@ -175,6 +190,7 @@ public final class StructureBlob {
                 for (int x = 0; x < sx; x++) {
                     BlockState structureState = palette.get(indices[i++]);
                     BlockPos worldPos = origin.offset(x, y, z);
+                    if (skipAirOnPaste && structureState.isAir()) continue;
                     CompoundTag beTag = blockEntities.get(new BlockPos(x, y, z));
                     BlockState existingState = level.getBlockState(worldPos);
 
@@ -255,6 +271,8 @@ public final class StructureBlob {
             beList.add(e);
         }
         tag.put("BlockEntities", beList);
+        // Only write when non-default so existing savefiles stay bit-identical.
+        if (skipAirOnPaste) tag.putBoolean("SkipAirOnPaste", true);
         return tag;
     }
 
@@ -275,6 +293,7 @@ public final class StructureBlob {
             int[] p = e.getIntArray("Pos");
             beTags.put(new BlockPos(p[0], p[1], p[2]), e.getCompound("Data"));
         }
-        return new StructureBlob(size, palette, indices, beTags);
+        boolean skipAir = tag.contains("SkipAirOnPaste") && tag.getBoolean("SkipAirOnPaste");
+        return new StructureBlob(size, palette, indices, beTags, skipAir);
     }
 }

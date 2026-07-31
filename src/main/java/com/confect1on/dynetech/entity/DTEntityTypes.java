@@ -35,4 +35,29 @@ public class DTEntityTypes {
                     .clientTrackingRange(16)
                     .updateInterval(5)
                     .build("shrunken_entity"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<VigilEntity>> VIGIL =
+            ENTITY_TYPES.register("vigil", () -> EntityType.Builder
+                    .of(VigilEntity::new, MobCategory.MONSTER)
+                    .sized(0.6F, 1.95F)
+                    .clientTrackingRange(10)
+                    .build("vigil"));
+
+    public static final DeferredHolder<EntityType<?>, EntityType<ThrownPhaseDiskEntity>> THROWN_PHASE_DISK =
+            ENTITY_TYPES.register("thrown_phase_disk", () -> EntityType.Builder
+                    .<ThrownPhaseDiskEntity>of(ThrownPhaseDiskEntity::new, MobCategory.MISC)
+                    .sized(0.25F, 0.25F)
+                    .clientTrackingRange(4)
+                    .updateInterval(10)
+                    .build("thrown_phase_disk"));
+
+    // Creature category so vanilla treats it like passive fauna. Natural spawning is out of
+    // scope for MVP, so this doesn't affect any mob cap, but the category still drives render
+    // distance and vanilla despawn heuristics.
+    public static final DeferredHolder<EntityType<?>, EntityType<UsherEntity>> USHER =
+            ENTITY_TYPES.register("usher", () -> EntityType.Builder
+                    .of(UsherEntity::new, MobCategory.CREATURE)
+                    .sized(0.6F, 1.95F)
+                    .clientTrackingRange(10)
+                    .build("usher"));
 }
