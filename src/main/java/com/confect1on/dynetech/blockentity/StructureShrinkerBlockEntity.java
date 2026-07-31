@@ -112,6 +112,15 @@ public class StructureShrinkerBlockEntity extends BlockEntity implements MenuPro
             return;
         }
 
+        // Bail before capture if the selection hits an operator-defined protected region.
+        if (DTConfig.findProtectingRegion(server.dimension().location().toString(),
+                min.getX(), min.getY(), min.getZ(),
+                max.getX(), max.getY(), max.getZ()) != null) {
+            if (activator != null) activator.displayClientMessage(
+                    Component.literal("Selection overlaps a protected region"), true);
+            return;
+        }
+
         // Refuse recursive nesting: a captured chest full of shrunken items would let the
         // dependency tree grow without bound, and paste-back on the outer blob would resurrect
         // shrunken items whose backing UUIDs may have been garbage-collected.

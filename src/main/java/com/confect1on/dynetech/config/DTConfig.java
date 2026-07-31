@@ -3,9 +3,11 @@ package com.confect1on.dynetech.config;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.level.block.Block;
+import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 import org.apache.commons.lang3.tuple.Pair;
 
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -15,6 +17,7 @@ public final class DTConfig {
     public static final ModConfigSpec SPEC;
     public static final ModConfigSpec.ConfigValue<String> PARTICLE_BRAND;
     public static final ModConfigSpec.ConfigValue<List<? extends String>> SHRINK_BLACKLIST;
+    public static final ModConfigSpec.ConfigValue<List<? extends String>> PROTECTED_REGIONS;
 
     private static final String DEFAULT_PARTICLE_BRAND = "Pym";
     public static final ModConfigSpec.IntValue SHRINK_MAX_VOLUME;
@@ -32,6 +35,11 @@ public final class DTConfig {
     public static final ModConfigSpec.DoubleValue WHISPER_RADIUS_PER_CHARGE;
     public static final ModConfigSpec.DoubleValue WHISPER_MAX_VOLUME;
     public static final ModConfigSpec.DoubleValue WHISPER_POSITION_JITTER;
+
+    // 16x16 spawn zone in the overworld, bedrock to build limit. Sensible default AND doc example.
+    private static final List<String> DEFAULT_PROTECTED_REGIONS = List.of(
+            "minecraft:overworld -8 -64 -8 7 319 7"
+    );
 
     private static final List<String> DEFAULT_BLACKLIST = List.of(
             "minecraft:bedrock",
@@ -54,6 +62,7 @@ public final class DTConfig {
         Pair<Data, ModConfigSpec> pair = new ModConfigSpec.Builder().configure(Data::new);
         PARTICLE_BRAND = pair.getLeft().particleBrand;
         SHRINK_BLACKLIST = pair.getLeft().shrinkBlacklist;
+        PROTECTED_REGIONS = pair.getLeft().protectedRegions;
         SHRINK_MAX_VOLUME = pair.getLeft().shrinkMaxVolume;
         SHRINK_MAX_BLOB_BYTES = pair.getLeft().shrinkMaxBlobBytes;
         SYNC_CHUNK_BYTES = pair.getLeft().syncChunkBytes;
@@ -105,9 +114,57 @@ public final class DTConfig {
         return blocks;
     }
 
+    private static volatile List<ProtectedRegion> cachedProtectedRegions;
+
+    /** Parsed protected regions from the config. Bad entries are silently dropped. */
+    public static List<ProtectedRegion> resolveProtectedRegions() {
+        List<ProtectedRegion> cache = cachedProtectedRegions;
+        if (cache == null) {
+            cache = doResolveProtectedRegions();
+            cachedProtectedRegions = cache;
+        }
+        return cache;
+    }
+
+    private static List<ProtectedRegion> doResolveProtectedRegions() {
+        List<ProtectedRegion> regions = new ArrayList<>();
+        for (String entry : PROTECTED_REGIONS.get()) {
+            ProtectedRegion r = ProtectedRegion.parse(entry);
+            if (r != null) regions.add(r);
+        }
+        return List.copyOf(regions);
+    }
+
+    /** First protected region overlapping the given AABB in the given dimension, or null. */
+    public static ProtectedRegion findProtectingRegion(String dimId,
+                                                       int minX, int minY, int minZ,
+                                                       int maxX, int maxY, int maxZ) {
+        return ProtectedRegion.findOverlapping(resolveProtectedRegions(), dimId,
+                minX, minY, minZ, maxX, maxY, maxZ);
+    }
+
+    /**
+     * GameTest hook: overrides the resolved list without touching the config file.
+     * Pass null to drop the override and re-read from config on next call.
+     */
+    public static void setResolvedProtectedRegionsForTest(List<ProtectedRegion> regions) {
+        cachedProtectedRegions = regions == null ? null : List.copyOf(regions);
+    }
+
+    /**
+     * Wired to ModConfigEvent so /reload or a config file edit drops stale caches.
+     * Called from DyneTech's constructor via modBus.addListener.
+     */
+    public static void onConfigEvent(ModConfigEvent event) {
+        if (event.getConfig().getSpec() != SPEC) return;
+        cachedBlacklist = null;
+        cachedProtectedRegions = null;
+    }
+
     private static final class Data {
         final ModConfigSpec.ConfigValue<String> particleBrand;
         final ModConfigSpec.ConfigValue<List<? extends String>> shrinkBlacklist;
+        final ModConfigSpec.ConfigValue<List<? extends String>> protectedRegions;
         final ModConfigSpec.IntValue shrinkMaxVolume;
         final ModConfigSpec.IntValue shrinkMaxBlobBytes;
         final ModConfigSpec.IntValue syncChunkBytes;
@@ -140,6 +197,17 @@ public final class DTConfig {
                             DEFAULT_BLACKLIST,
                             () -> "minecraft:bedrock",
                             o -> o instanceof String);
+
+            protectedRegions = b
+                    .comment("Regions where the Structure Shrinker refuses to capture or regrow (e.g. server spawns).",
+                            "Format: \"<dimension> <minX> <minY> <minZ> <maxX> <maxY> <maxZ>\"  (coords inclusive).",
+                            "Dimensions use Minecraft resource IDs (minecraft:overworld, minecraft:the_nether, minecraft:the_end).",
+                            "A shrink or regrow is refused if the selection's AABB overlaps ANY listed region in the same dimension.",
+                            "Default: a 16x16 zone around world spawn (0,0), from bedrock (-64) to build limit (319), in the Overworld.")
+                    .defineListAllowEmpty("protected_regions",
+                            DEFAULT_PROTECTED_REGIONS,
+                            () -> "minecraft:overworld -8 -64 -8 7 319 7",
+                            o -> o instanceof String s && ProtectedRegion.parse(s) != null);
 
             shrinkMaxVolume = b
                     .comment("Maximum selection volume (blocks = width * height * depth) the Structure Shrinker will capture.",

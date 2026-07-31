@@ -58,6 +58,7 @@ public class DyneTech {
 
         modBus.addListener(DTPayloads::register);
         modBus.addListener(DyneTech::registerCapabilities);
+        modBus.addListener(DTConfig::onConfigEvent);
         modBus.addListener(DyneTech::onCommonSetup);
         modBus.addListener(DyneTech::onEntityAttributeCreation);
 

@@ -13,6 +13,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
 import net.neoforged.neoforge.network.PacketDistributor;
 import com.confect1on.dynetech.config.DTConfig;
 import com.confect1on.dynetech.item.DTItems;
@@ -34,6 +35,26 @@ public class PymParticleDiscEntity extends ThrowableItemProjectile {
     @Override
     protected Item getDefaultItem() {
         return DTItems.SHRINK_DISC.get();
+    }
+
+    // Low gravity so throws barely arc (vanilla ThrowableProjectile is 0.03).
+    @Override
+    protected double getDefaultGravity() {
+        return 0.005;
+    }
+
+    // Vanilla air drag is 0.99/tick which saps ~86% of speed over 10s. We want gliding,
+    // so re-scale after super.tick to net a much gentler ~0.998/tick. Water drag (0.8)
+    // is left alone so submerged throws still slow.
+    private static final double VANILLA_AIR_DRAG = 0.99;
+    private static final double DESIRED_AIR_DRAG = 0.998;
+
+    @Override
+    public void tick() {
+        super.tick();
+        if (this.isRemoved() || this.isInWater()) return;
+        Vec3 v = this.getDeltaMovement();
+        this.setDeltaMovement(v.scale(DESIRED_AIR_DRAG / VANILLA_AIR_DRAG));
     }
 
     @Override

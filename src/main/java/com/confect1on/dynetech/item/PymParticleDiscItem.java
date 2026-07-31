@@ -31,7 +31,9 @@ public class PymParticleDiscItem extends Item {
 
         if (!level.isClientSide) {
             PymParticleDiscEntity disc = new PymParticleDiscEntity(level, player, stack.copyWithCount(1));
-            disc.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0F, 1.5F, 1.0F);
+            // 1.2 speed (a touch slower than a snowball's 1.5), tiny inaccuracy so it flies
+            // where you aim. Paired with the entity's low gravity/drag = frisbee :D
+            disc.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0F, 1.2F, 0.2F);
             level.addFreshEntity(disc);
         }
 
