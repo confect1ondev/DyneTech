@@ -75,6 +75,18 @@ public class DTItems {
             ITEMS.register("usher_spawn_egg", () -> new DeferredSpawnEggItem(
                     DTEntityTypes.USHER, 0x1A0B1F, 0x7B2FBE, new Item.Properties()));
 
+    public static final DeferredHolder<Item, ShoalResidueItem> SHOAL_RESIDUE =
+            ITEMS.register("shoal_residue", () -> new ShoalResidueItem(new Item.Properties()));
+
+    // The Shoal isn't a Mob, so DeferredSpawnEggItem's typing rejects it. Use a bespoke egg-like
+    // item that spawns the entity directly through EntityType.spawn().
+    public static final DeferredHolder<Item, ShoalSpawnEggItem> SHOAL_SPAWN_EGG =
+            ITEMS.register("shoal_spawn_egg", () -> new ShoalSpawnEggItem(new Item.Properties()));
+
+    // Test item: a dropped stack of this always fascinates the Shoal, bypassing boredom.
+    public static final DeferredHolder<Item, Item> SHOAL_LURE =
+            ITEMS.register("shoal_lure", () -> new Item(new Item.Properties()));
+
     public static final DeferredRegister<CreativeModeTab> CREATIVE_TABS =
             DeferredRegister.create(Registries.CREATIVE_MODE_TAB, DyneTech.MODID);
 
@@ -100,6 +112,11 @@ public class DTItems {
                 output.accept(PHASE_DISK.get());
                 output.accept(VIGIL_SPAWN_EGG.get());
                 output.accept(USHER_SPAWN_EGG.get());
+                output.accept(SHOAL_SPAWN_EGG.get());
+                output.accept(SHOAL_RESIDUE.get());
+                output.accept(SHOAL_LURE.get());
+                output.accept(DTBlocks.SHOAL_GROWTH.get());
+                output.accept(DTBlocks.SHOAL_BLOOM.get());
                 // PerkCycler is a dev-only cycler: reachable via /give but not shown in the tab.
             })
             .build());

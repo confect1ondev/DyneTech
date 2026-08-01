@@ -26,6 +26,9 @@ import com.confect1on.dynetech.component.DTDataComponents;
 import com.confect1on.dynetech.client.renderer.PymParticleDiscRenderer;
 import com.confect1on.dynetech.client.renderer.ShrunkenEntityBEWLR;
 import com.confect1on.dynetech.client.renderer.ShrunkenEntityEntityRenderer;
+import com.confect1on.dynetech.client.renderer.ShoalMoteParticle;
+import com.confect1on.dynetech.client.renderer.ShoalMoteTexture;
+import com.confect1on.dynetech.client.renderer.ShoalRenderer;
 import com.confect1on.dynetech.client.renderer.ShrunkenStructureBEWLR;
 import com.confect1on.dynetech.client.renderer.ShrunkenStructureEntityRenderer;
 import com.confect1on.dynetech.client.renderer.StructureShrinkerBlockEntityRenderer;
@@ -62,6 +65,7 @@ public class DTClient {
             event.registerEntityRenderer(DTEntityTypes.SHRUNKEN_ENTITY.get(), ShrunkenEntityEntityRenderer::new);
             event.registerEntityRenderer(DTEntityTypes.VIGIL.get(), VigilRenderer::new);
             event.registerEntityRenderer(DTEntityTypes.USHER.get(), UsherRenderer::new);
+            event.registerEntityRenderer(DTEntityTypes.SHOAL.get(), ShoalRenderer::new);
             event.registerEntityRenderer(DTEntityTypes.THROWN_PHASE_DISK.get(),
                     ctx -> new SpinningDiscRenderer<ThrownPhaseDiskEntity>(ctx));
             event.registerBlockEntityRenderer(DTBlockEntities.STRUCTURE_SHRINKER.get(), StructureShrinkerBlockEntityRenderer::new);
@@ -72,6 +76,14 @@ public class DTClient {
             event.registerLayerDefinition(VigilRenderer.MODEL_LAYER, () -> VigilModel.createBodyLayer(false));
             event.registerLayerDefinition(VigilRenderer.MODEL_LAYER_SLIM, () -> VigilModel.createBodyLayer(true));
             event.registerLayerDefinition(UsherRenderer.MODEL_LAYER, UsherModel::createBodyLayer);
+        }
+
+        @SubscribeEvent
+        public static void registerParticleProviders(
+                net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent event) {
+            event.registerSpecial(
+                    com.confect1on.dynetech.particle.DTParticles.SHOAL_MOTE.get(),
+                    new ShoalMoteParticle.Provider());
         }
 
         @SubscribeEvent
@@ -91,6 +103,9 @@ public class DTClient {
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event) {
             event.enqueueWork(() -> {
+                // Register the runtime-generated Shoal mote sprite before anything can request it.
+                ShoalMoteTexture.ensureRegistered();
+
                 // Lethal-mode TCE swaps to a red-tip model via this override.
                 ItemProperties.register(
                         DTItems.TISSUE_COMPRESSION_ELIMINATOR.get(),

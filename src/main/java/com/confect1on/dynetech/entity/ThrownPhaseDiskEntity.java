@@ -70,7 +70,7 @@ public class ThrownPhaseDiskEntity extends ThrowableItemProjectile {
     protected void onHitBlock(BlockHitResult result) {
         super.onHitBlock(result);
         if (this.level().isClientSide) return;
-        // Never lost on a miss — always recoverable at the impact point.
+        // Never lost on a miss; always recoverable at the impact point.
         dropSelfAt(result.getLocation());
         this.discard();
     }
@@ -88,6 +88,12 @@ public class ThrownPhaseDiskEntity extends ThrowableItemProjectile {
             if (usher.level() instanceof ServerLevel server) {
                 usher.collapse(server, usher.position());
             }
+            return true;
+        }
+        if (target instanceof ShoalEntity shoal) {
+            // The Shoal cannot be killed any other way. The disk is consumed on this path,
+            // matching the "weapon, full stop" reading in the spec.
+            shoal.collapse();
             return true;
         }
         return false;

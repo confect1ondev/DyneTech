@@ -59,5 +59,17 @@ public final class DTAttachments {
                             .serialize(Codec.BOOL)
                             .build());
 
+    /**
+     * Shoal-carrier bookkeeping: incubation start, seep clock and per-day conversion budget.
+     * Lives on the player attachment and is cleared with everything else on death via
+     * {@code clearAllPerks}'s companion sweep in {@code PerkEvents.onDeath}. A fresh player has
+     * no record; the fast path in the seep tick avoids materializing the default for non-hosts.
+     */
+    public static final Supplier<AttachmentType<ShoalHostState>> SHOAL_HOST_STATE =
+            ATTACHMENT_TYPES.register("shoal_host_state",
+                    () -> AttachmentType.builder(() -> ShoalHostState.EMPTY)
+                            .serialize(ShoalHostState.CODEC)
+                            .build());
+
     private DTAttachments() {}
 }

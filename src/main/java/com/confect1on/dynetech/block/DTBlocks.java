@@ -89,4 +89,31 @@ public class DTBlocks {
     public static final DeferredHolder<Item, BlockItem> GENE_MICROSCOPE_ITEM = DTItems.ITEMS.register(
             "gene_microscope",
             () -> new BlockItem(GENE_MICROSCOPE.get(), new Item.Properties()));
+
+    // Shoal Growth: cluster that stores rearranged blocks. Weak to break, glows faintly.
+    public static final DeferredBlock<ShoalGrowthBlock> SHOAL_GROWTH = BLOCKS.register(
+            "shoal_growth",
+            () -> new ShoalGrowthBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_BLUE)
+                    .strength(0.6F, 0.6F)
+                    .sound(SoundType.AMETHYST)
+                    .lightLevel(state -> 6)
+                    .noOcclusion()));
+
+    public static final DeferredHolder<Item, BlockItem> SHOAL_GROWTH_ITEM = DTItems.ITEMS.register(
+            "shoal_growth",
+            () -> new BlockItem(SHOAL_GROWTH.get(), new Item.Properties()));
+
+    // Shoal Bloom: sculk-analog. Inert once placed, does not spread.
+    public static final DeferredBlock<ShoalBloomBlock> SHOAL_BLOOM = BLOCKS.register(
+            "shoal_bloom",
+            () -> new ShoalBloomBlock(BlockBehaviour.Properties.of()
+                    .mapColor(MapColor.COLOR_BLUE)
+                    .strength(1.2F, 1.2F)
+                    .sound(SoundType.SCULK)
+                    .lightLevel(state -> 7)));
+
+    public static final DeferredHolder<Item, BlockItem> SHOAL_BLOOM_ITEM = DTItems.ITEMS.register(
+            "shoal_bloom",
+            () -> new BlockItem(SHOAL_BLOOM.get(), new Item.Properties()));
 }

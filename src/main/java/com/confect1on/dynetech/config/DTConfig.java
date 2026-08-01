@@ -35,6 +35,18 @@ public final class DTConfig {
     public static final ModConfigSpec.DoubleValue WHISPER_RADIUS_PER_CHARGE;
     public static final ModConfigSpec.DoubleValue WHISPER_MAX_VOLUME;
     public static final ModConfigSpec.DoubleValue WHISPER_POSITION_JITTER;
+    public static final ModConfigSpec.DoubleValue SHOAL_INFECT_RADIUS;
+    public static final ModConfigSpec.IntValue SHOAL_INCUBATION_TICKS;
+    public static final ModConfigSpec.IntValue SEEP_INTERVAL_TICKS;
+    public static final ModConfigSpec.IntValue SEEP_SCAN_RADIUS;
+    public static final ModConfigSpec.IntValue SEEP_GROWTH_SEARCH_RADIUS;
+    public static final ModConfigSpec.IntValue SEEP_BED_PROTECT_RADIUS;
+    public static final ModConfigSpec.IntValue SEEP_DAILY_BUDGET;
+    public static final ModConfigSpec.DoubleValue SEEP_REARRANGE_WEIGHT;
+    public static final ModConfigSpec.DoubleValue SEEP_DISPLACE_WEIGHT;
+    public static final ModConfigSpec.DoubleValue SEEP_LINGER_SPEED;
+    public static final ModConfigSpec.IntValue CURE_CHANNEL_TICKS;
+    public static final ModConfigSpec.DoubleValue CURE_CHANNEL_RANGE;
 
     // 16x16 spawn zone in the overworld, bedrock to build limit. Sensible default AND doc example.
     private static final List<String> DEFAULT_PROTECTED_REGIONS = List.of(
@@ -78,6 +90,18 @@ public final class DTConfig {
         WHISPER_RADIUS_PER_CHARGE = pair.getLeft().whisperRadiusPerCharge;
         WHISPER_MAX_VOLUME = pair.getLeft().whisperMaxVolume;
         WHISPER_POSITION_JITTER = pair.getLeft().whisperPositionJitter;
+        SHOAL_INFECT_RADIUS = pair.getLeft().shoalInfectRadius;
+        SHOAL_INCUBATION_TICKS = pair.getLeft().shoalIncubationTicks;
+        SEEP_INTERVAL_TICKS = pair.getLeft().seepIntervalTicks;
+        SEEP_SCAN_RADIUS = pair.getLeft().seepScanRadius;
+        SEEP_GROWTH_SEARCH_RADIUS = pair.getLeft().seepGrowthSearchRadius;
+        SEEP_BED_PROTECT_RADIUS = pair.getLeft().seepBedProtectRadius;
+        SEEP_DAILY_BUDGET = pair.getLeft().seepDailyBudget;
+        SEEP_REARRANGE_WEIGHT = pair.getLeft().seepRearrangeWeight;
+        SEEP_DISPLACE_WEIGHT = pair.getLeft().seepDisplaceWeight;
+        SEEP_LINGER_SPEED = pair.getLeft().seepLingerSpeed;
+        CURE_CHANNEL_TICKS = pair.getLeft().cureChannelTicks;
+        CURE_CHANNEL_RANGE = pair.getLeft().cureChannelRange;
         SPEC = pair.getRight();
     }
 
@@ -180,6 +204,18 @@ public final class DTConfig {
         final ModConfigSpec.DoubleValue whisperRadiusPerCharge;
         final ModConfigSpec.DoubleValue whisperMaxVolume;
         final ModConfigSpec.DoubleValue whisperPositionJitter;
+        final ModConfigSpec.DoubleValue shoalInfectRadius;
+        final ModConfigSpec.IntValue shoalIncubationTicks;
+        final ModConfigSpec.IntValue seepIntervalTicks;
+        final ModConfigSpec.IntValue seepScanRadius;
+        final ModConfigSpec.IntValue seepGrowthSearchRadius;
+        final ModConfigSpec.IntValue seepBedProtectRadius;
+        final ModConfigSpec.IntValue seepDailyBudget;
+        final ModConfigSpec.DoubleValue seepRearrangeWeight;
+        final ModConfigSpec.DoubleValue seepDisplaceWeight;
+        final ModConfigSpec.DoubleValue seepLingerSpeed;
+        final ModConfigSpec.IntValue cureChannelTicks;
+        final ModConfigSpec.DoubleValue cureChannelRange;
 
         Data(ModConfigSpec.Builder b) {
             b.comment("Server-side settings for DyneTech.").push("server");
@@ -289,6 +325,66 @@ public final class DTConfig {
                     .comment("Maximum random offset (blocks) applied to the reported emitter position on",
                             "each broadcast, in each axis. Prevents pinpointing by turning in place.")
                     .defineInRange("position_jitter", 3.0, 0.0, 32.0);
+
+            b.pop();
+
+            b.comment("Shoal infection and seep tuning. The SMP is the tuning environment.").push("shoal");
+
+            shoalInfectRadius = b
+                    .comment("Contact radius (blocks) within which a Shoal cloud infects players.")
+                    .defineInRange("infect_radius", 2.5, 0.5, 16.0);
+
+            shoalIncubationTicks = b
+                    .comment("Game ticks the hidden incubation gene lasts before turning symptomatic.",
+                            "Default 48000 = 2 in-game days (40 real minutes).")
+                    .defineInRange("incubation_ticks", 48_000, 200, 24_000_000);
+
+            seepIntervalTicks = b
+                    .comment("Server ticks between seep evaluations for one symptomatic carrier.")
+                    .defineInRange("seep_interval_ticks", 40, 5, 24_000);
+
+            seepScanRadius = b
+                    .comment("Radius (blocks) around a lingering carrier scanned for convertible blocks.")
+                    .defineInRange("seep_scan_radius", 6, 1, 32);
+
+            seepGrowthSearchRadius = b
+                    .comment("Radius (blocks) searched for an existing non-full Shoal Growth before",
+                            "seeding a new one.")
+                    .defineInRange("seep_growth_search_radius", 12, 1, 32);
+
+            seepBedProtectRadius = b
+                    .comment("Protection radius (blocks) around beds and respawn anchors where the",
+                            "seep never converts anything.")
+                    .defineInRange("seep_bed_protect_radius", 4, 0, 16);
+
+            seepDailyBudget = b
+                    .comment("Maximum block conversions per infected player per in-game day.")
+                    .defineInRange("seep_daily_budget", 40, 0, 24_000);
+
+            seepRearrangeWeight = b
+                    .comment("Chance a conversion rearranges the block (nudged nearby or sapped",
+                            "into a Shoal Growth spire) instead of consuming it in place with",
+                            "Shoal Bloom.")
+                    .defineInRange("seep_rearrange_weight", 0.7, 0.0, 1.0);
+
+            seepDisplaceWeight = b
+                    .comment("Within a rearrange, chance the block is simply nudged a block or so",
+                            "from where it sat rather than fed into a Shoal Growth spire.")
+                    .defineInRange("seep_displace_weight", 0.5, 0.0, 1.0);
+
+            seepLingerSpeed = b
+                    .comment("Horizontal speed (blocks per tick) above which a carrier counts as",
+                            "passing through rather than lingering; the seep pauses above it.")
+                    .defineInRange("seep_linger_speed", 0.2, 0.0, 2.0);
+
+            cureChannelTicks = b
+                    .comment("Ticks a Phase Disk cure channel takes. Default 40 = 2 seconds.")
+                    .defineInRange("cure_channel_ticks", 40, 10, 400);
+
+            cureChannelRange = b
+                    .comment("Maximum distance (blocks) between the disk user and the carrier",
+                            "being cured; the channel aborts past it.")
+                    .defineInRange("cure_channel_range", 5.0, 1.0, 16.0);
 
             b.pop();
 

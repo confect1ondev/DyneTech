@@ -36,4 +36,9 @@ public class DTBlockEntities {
             BLOCK_ENTITIES.register("cryo_preservator",
                     () -> BlockEntityType.Builder.of(CryoPreservatorBlockEntity::new, DTBlocks.CRYO_PRESERVATOR.get())
                             .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ShoalGrowthBlockEntity>> SHOAL_GROWTH =
+            BLOCK_ENTITIES.register("shoal_growth",
+                    () -> BlockEntityType.Builder.of(ShoalGrowthBlockEntity::new, DTBlocks.SHOAL_GROWTH.get())
+                            .build(null));
 }

@@ -29,6 +29,8 @@ import com.confect1on.dynetech.gene.perks.PhotophobiaDefect;
 import com.confect1on.dynetech.gene.perks.PhotosynthesisPerk;
 import com.confect1on.dynetech.gene.perks.ScalePerk;
 import com.confect1on.dynetech.gene.perks.ScreamerDefect;
+import com.confect1on.dynetech.gene.perks.ShoalIncubationPerk;
+import com.confect1on.dynetech.gene.perks.ShoalInfectionPerk;
 import com.confect1on.dynetech.gene.perks.SlimeBouncePerk;
 import com.confect1on.dynetech.gene.perks.StaticDefect;
 import com.confect1on.dynetech.gene.perks.VenomTouchPerk;
@@ -240,6 +242,14 @@ public final class Perks {
 
     public static final DeferredHolder<Perk, GodhoodPerk> GODHOOD =
             REGISTRAR.register("godhood", GodhoodPerk::new);
+
+    // Shoal infection lifecycle. Both are non-sample perks - they enter play only via a Shoal
+    // touch, never via the sequencer. They still register so the microscope and the equipped-perks
+    // codec can resolve them.
+    public static final DeferredHolder<Perk, ShoalIncubationPerk> SHOAL_INCUBATION =
+            REGISTRAR.register("shoal_incubation", ShoalIncubationPerk::new);
+    public static final DeferredHolder<Perk, ShoalInfectionPerk> SHOAL_INFECTION =
+            REGISTRAR.register("shoal_infection", ShoalInfectionPerk::new);
 
     // ============================================================================
     //  Defects

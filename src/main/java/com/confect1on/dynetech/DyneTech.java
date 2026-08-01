@@ -31,6 +31,7 @@ import com.confect1on.dynetech.gene.PerkEvents;
 import com.confect1on.dynetech.gene.Perks;
 import com.confect1on.dynetech.gene.SpeciesPool;
 import com.confect1on.dynetech.item.DTItems;
+import com.confect1on.dynetech.item.PhaseDiskItem;
 import com.confect1on.dynetech.menu.DTMenus;
 import com.confect1on.dynetech.network.DTPayloads;
 import com.confect1on.dynetech.sound.DTSounds;
@@ -54,6 +55,7 @@ public class DyneTech {
         DTSounds.SOUNDS.register(modBus);
         DTAttachments.ATTACHMENT_TYPES.register(modBus);
         DTEffects.EFFECTS.register(modBus);
+        com.confect1on.dynetech.particle.DTParticles.PARTICLE_TYPES.register(modBus);
         Perks.REGISTRAR.register(modBus);
 
         modBus.addListener(DTPayloads::register);
@@ -95,6 +97,7 @@ public class DyneTech {
         NeoForge.EVENT_BUS.addListener(GodhoodEvents::onLogin);
         NeoForge.EVENT_BUS.addListener(GodhoodEvents::onDimensionChange);
         NeoForge.EVENT_BUS.addListener(GodhoodEvents::onLogout);
+        NeoForge.EVENT_BUS.addListener(PhaseDiskItem::onPlayerLoggedOut);
         // HIGHEST priority, registered AFTER onGodhoodDeath so the ordering is
         // onGodhoodDeath -> onGodhoodDeathStopWhispers -> PerkEvents.onDeath. That last step
         // strips the perks via clearAllPerks, so we must read hasGodhood BEFORE it runs.

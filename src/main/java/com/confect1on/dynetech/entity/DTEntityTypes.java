@@ -60,4 +60,14 @@ public class DTEntityTypes {
                     .sized(0.6F, 1.95F)
                     .clientTrackingRange(10)
                     .build("usher"));
+
+    // MISC so the swarm never counts toward any mob cap. Small hitbox is just the projectile
+    // target; the visible cloud is a client-side mote swarm and can extend well past the AABB.
+    public static final DeferredHolder<EntityType<?>, EntityType<ShoalEntity>> SHOAL =
+            ENTITY_TYPES.register("shoal", () -> EntityType.Builder
+                    .<ShoalEntity>of(ShoalEntity::new, MobCategory.MISC)
+                    .sized(1.5F, 1.5F)
+                    .clientTrackingRange(12)
+                    .updateInterval(2)
+                    .build("shoal"));
 }
