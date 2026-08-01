@@ -36,22 +36,11 @@ public class ShoalSpawnEggItem extends Item {
                 ? hitPos
                 : hitPos.relative(context.getClickedFace() == Direction.DOWN ? Direction.DOWN : Direction.UP);
 
-        // Shoals come as a bonded trio: one primary and two secondaries that loosely travel,
-        // hunt, and die together while running their own state machines.
-        var primary = DTEntityTypes.SHOAL.get().spawn(server, stack, context.getPlayer(),
+        // A single Shoal. The multi-lobe reading now lives inside the swarm sim, where the
+        // cloud splits into wandering sub-clusters and folds back together, instead of three
+        // separate entities that tended to read as disconnected neighbors.
+        DTEntityTypes.SHOAL.get().spawn(server, stack, context.getPlayer(),
                 spawnAt, MobSpawnType.SPAWN_EGG, true, false);
-        var second = DTEntityTypes.SHOAL.get().spawn(server, stack, context.getPlayer(),
-                spawnAt.offset(2, 0, 2), MobSpawnType.SPAWN_EGG, true, false);
-        var third = DTEntityTypes.SHOAL.get().spawn(server, stack, context.getPlayer(),
-                spawnAt.offset(-2, 0, 2), MobSpawnType.SPAWN_EGG, true, false);
-        if (primary != null && second != null && third != null) {
-            primary.addPartner(second.getUUID());
-            primary.addPartner(third.getUUID());
-            second.addPartner(primary.getUUID());
-            second.setPrimary(false);
-            third.addPartner(primary.getUUID());
-            third.setPrimary(false);
-        }
         if (context.getPlayer() != null && !context.getPlayer().getAbilities().instabuild) {
             stack.shrink(1);
         }

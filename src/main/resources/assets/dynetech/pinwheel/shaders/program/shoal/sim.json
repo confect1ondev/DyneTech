@@ -1,0 +1,7 @@
+{
+  "compute": "dynetech:shoal/sim",
+  "required_features": [
+    "compute",
+    "shader_storage"
+  ]
+}

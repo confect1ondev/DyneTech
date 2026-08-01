@@ -25,6 +25,13 @@ public class ThrownPhaseDiskEntity extends ThrowableItemProjectile {
     // Recoverable-on-miss: the disk is expensive enough that losing one to a stray throw would
     // feel awful. Cap airtime anyway so a disk lobbed into loaded-chunk void gets cleaned up.
     private static final int MAX_LIFETIME_TICKS = 20 * 60;
+    // A throw does not need to thread the 1.5-block hitbox; passing anywhere through the
+    // visible cloud opens the vacuum.
+    private static final double NEAR_MISS_RADIUS = 2.5D;
+
+    // Set once the disk has eaten a Shoal. It keeps flying as the drain point the motes get
+    // pulled into, but the kill consumed it: it dissipates on landing instead of dropping.
+    private boolean spent;
 
     public ThrownPhaseDiskEntity(EntityType<? extends ThrownPhaseDiskEntity> type, Level level) {
         super(type, level);
@@ -43,8 +50,17 @@ public class ThrownPhaseDiskEntity extends ThrowableItemProjectile {
     @Override
     public void tick() {
         super.tick();
-        if (!this.level().isClientSide && this.tickCount > MAX_LIFETIME_TICKS) {
-            dropSelfAt(this.position());
+        if (this.level().isClientSide) return;
+        if (!this.spent) {
+            for (ShoalEntity shoal : this.level().getEntitiesOfClass(
+                    ShoalEntity.class, this.getBoundingBox().inflate(NEAR_MISS_RADIUS))) {
+                shoal.collapseInto(this);
+                this.spent = true;
+                break;
+            }
+        }
+        if (this.tickCount > MAX_LIFETIME_TICKS) {
+            if (!this.spent) dropSelfAt(this.position());
             this.discard();
         }
     }
@@ -55,6 +71,16 @@ public class ThrownPhaseDiskEntity extends ThrowableItemProjectile {
         if (this.level().isClientSide) return;
 
         Entity target = result.getEntity();
+        if (target instanceof ShoalEntity shoal) {
+            // The Shoal cannot be killed any other way, and the kill consumes the disk. It is
+            // not stopped by the hit though: it flies on as the drain the cloud funnels into.
+            // One swarm per disk; a spent one passes through the next cloud harmlessly.
+            if (!this.spent) {
+                shoal.collapseInto(this);
+                this.spent = true;
+            }
+            return;
+        }
         if (handleEntityHit(target)) {
             this.discard();
             return;
@@ -62,7 +88,7 @@ public class ThrownPhaseDiskEntity extends ThrowableItemProjectile {
 
         // Non-Vigil entity: minor thrown-object damage, then drop the disk for pickup.
         target.hurt(this.damageSources().thrown(this, this.getOwner()), 1.0F);
-        dropSelfAt(result.getLocation());
+        if (!this.spent) dropSelfAt(result.getLocation());
         this.discard();
     }
 
@@ -70,8 +96,8 @@ public class ThrownPhaseDiskEntity extends ThrowableItemProjectile {
     protected void onHitBlock(BlockHitResult result) {
         super.onHitBlock(result);
         if (this.level().isClientSide) return;
-        // Never lost on a miss; always recoverable at the impact point.
-        dropSelfAt(result.getLocation());
+        // Never lost on a miss; always recoverable at the impact point. Unless it fed.
+        if (!this.spent) dropSelfAt(result.getLocation());
         this.discard();
     }
 
@@ -88,12 +114,6 @@ public class ThrownPhaseDiskEntity extends ThrowableItemProjectile {
             if (usher.level() instanceof ServerLevel server) {
                 usher.collapse(server, usher.position());
             }
-            return true;
-        }
-        if (target instanceof ShoalEntity shoal) {
-            // The Shoal cannot be killed any other way. The disk is consumed on this path,
-            // matching the "weapon, full stop" reading in the spec.
-            shoal.collapse();
             return true;
         }
         return false;

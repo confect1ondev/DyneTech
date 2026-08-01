@@ -20,11 +20,11 @@ public final class ShoalSwarm {
     /** How many world ticks between trail-buffer writes. */
     private static final int TRAIL_STRIDE = 1;
     /** Neighbor-spawn radius by state. Motes born far from the anchor grow the cloud footprint. */
-    private static final float SPAWN_R_HOLD = 2.4F;
-    private static final float SPAWN_R_DRIFT = 2.6F;
-    private static final float SPAWN_R_FLOW = 1.25F;
-    private static final float SPAWN_R_ORBIT = 1.3F;
-    private static final float SPAWN_R_INSPECT = 3.2F;
+    private static final float SPAWN_R_HOLD = 6.0F;
+    private static final float SPAWN_R_DRIFT = 6.5F;
+    private static final float SPAWN_R_FLOW = 3.1F;
+    private static final float SPAWN_R_ORBIT = 3.2F;
+    private static final float SPAWN_R_INSPECT = 8.0F;
     // Lifetime in tick units. At 20 tps that's ~3 seconds per mote before respawn.
     private static final float MOTE_LIFETIME = 60F;
     // Entering Hold pops the swarm outward, then it hangs nearly motionless for this long
@@ -48,6 +48,13 @@ public final class ShoalSwarm {
     private byte lastState = -1;
     private boolean sawBurst;
     private float stillUntil = Float.NEGATIVE_INFINITY;
+    private int lastInterestId;
+    private float exciteUntil = Float.NEGATIVE_INFINITY;
+    // Per-swarm motion personality, rolled from the seed: how fast the internal churn runs and
+    // how quickly the braid opens and closes. Twins with identical rhythms read as copies.
+    private final float churnRate;
+    private final float braidRate;
+    private final float braidPhase;
 
     private final double[] trailX, trailY, trailZ;
     private final float[] trailAvoidX, trailAvoidZ, trailAvoidMag, trailClear;
@@ -61,6 +68,9 @@ public final class ShoalSwarm {
 
     public ShoalSwarm(int seed, int capacity) {
         this.rngState = seed * 0x9E3779B97F4A7C15L ^ 0x2545F4914F6CDD1DL;
+        this.churnRate = 0.8F + (float) nextUnit() * 0.4F;
+        this.braidRate = 0.75F + (float) nextUnit() * 0.5F;
+        this.braidPhase = (float) (nextUnit() * Math.PI * 2.0);
         this.capacity = capacity;
         this.px = new float[capacity];
         this.py = new float[capacity];
@@ -133,13 +143,32 @@ public final class ShoalSwarm {
 
         byte state = entity.getShoalState();
         boolean collapsing = state == ShoalEntity.STATE_COLLAPSE;
+
+        // Whatever the server says the swarm is studying right now. A quarter of the motes
+        // reach toward it as a tendril, so a watcher can tell exactly what caught its eye.
+        int interestId = entity.getInterestId();
+        Vec3 interestPos = null;
+        if (interestId != 0 && !collapsing) {
+            net.minecraft.world.entity.Entity focus = entity.level().getEntity(interestId);
+            if (focus != null && focus.isAlive()) {
+                interestPos = focus.getPosition(partialTicks).add(0.0, focus.getBbHeight() * 0.6, 0.0);
+            }
+        }
+        if (interestId != lastInterestId) {
+            if (interestId != 0) {
+                // A fresh find gets a brief shimmer: brighter, faster churn, then it settles.
+                exciteUntil = now + 25F + (float) nextUnit() * 20F;
+            }
+            lastInterestId = interestId;
+        }
         // The outward pop is a rare startle, not the standard pause. The server rolls it and
         // flags both partners, so a bonded pair pops and freezes as one; the client just
         // watches the flag's rising edge.
         boolean burstFlag = entity.isBurstFlagged();
         if (state == ShoalEntity.STATE_HOLD && burstFlag && !sawBurst && lastState != -1) {
             burstOutward(ax, ay, az);
-            stillUntil = now + STILL_TICKS;
+            // Each freeze runs a different length so repeated startles never feel metronomic.
+            stillUntil = now + STILL_TICKS * (0.7F + (float) nextUnit() * 0.6F);
         }
         sawBurst = burstFlag;
         if (state != lastState) {
@@ -152,12 +181,13 @@ public final class ShoalSwarm {
         boolean still = state == ShoalEntity.STATE_HOLD && now < stillUntil;
         boolean orbiting = state == ShoalEntity.STATE_ORBIT;
 
-        float noiseTime = tick * 0.04F;
+        float excite = excitement(now);
+        float noiseTime = tick * 0.04F * churnRate;
         // How far the strands sit from the center line right now. Cycles slowly, so the stream
         // visibly splits apart and braids back together. The floor keeps the strands from ever
         // fully collapsing onto each other, which read as a thick core instead of a stream.
-        float branchOpen = 0.35F + 0.65F * (0.5F + 0.5F * Mth.sin(now * 0.02F + 1.3F));
-        float attract = still ? 0F : attractStrengthForState(state);
+        float branchOpen = 0.35F + 0.65F * (0.5F + 0.5F * Mth.sin(now * 0.02F * braidRate + braidPhase));
+        float attract = still ? 0F : attractStrengthForState(state) * (1F + excite * 0.4F);
         float shellR = spawnRadiusForState(state);
         // The secondary lobe rides the same trail but stays cloudier: while the primary pulls
         // into a crisp braided line, this one loosens, so together they read as one organism
@@ -166,7 +196,7 @@ public final class ShoalSwarm {
         float lineSpread = primaryLobe ? 1F : 1.8F;
         float lineRest = primaryLobe ? 0.2F : 0.5F;
         float damping = still ? 0.84F : state == ShoalEntity.STATE_HOLD ? 0.86F : 0.92F;
-        float curlAmp = collapsing || still ? 0F : curlAmpForState(state);
+        float curlAmp = collapsing || still ? 0F : curlAmpForState(state) * (1F + excite * 0.8F);
         double vaX = ax - lastAnchorX;
         double vaY = ay - lastAnchorY;
         double vaZ = az - lastAnchorZ;
@@ -239,11 +269,31 @@ public final class ShoalSwarm {
                 // spring and extra curl keep the column from reading as rigid spinning ribs.
                 float hNorm = (slot[i] / (float) TRAIL_LEN + now * 0.008F) % 1F;
                 float ang = now * 0.11F + hNorm * 5.0F + branch[i] * 1.571F;
-                float rad = 0.5F + hNorm * 1.4F;
+                float rad = 1.2F + hNorm * 3.5F;
                 tx = ax + Mth.cos(ang) * rad;
-                ty = ay - 0.7F + hNorm * 2.6F;
+                ty = ay - 1.8F + hNorm * 6.5F;
                 tz = az + Mth.sin(ang) * rad;
                 rest = 0.3F;
+            } else if (interestPos != null && branch[i] == 0 && !still) {
+                // Tendril motes: a quarter of the swarm strings out along the line toward the
+                // interest, tapering as it goes, so the cloud visibly points at what it is
+                // studying. Capped reach keeps it a gesture rather than a bridge.
+                double rx = interestPos.x - ax;
+                double ry = interestPos.y - ay;
+                double rz = interestPos.z - az;
+                double rd = Math.sqrt(rx * rx + ry * ry + rz * rz);
+                if (rd > 2.0 && rd < 24.0) {
+                    double f = slot[i] / (double) TRAIL_LEN;
+                    double along = Math.min(rd - 1.0, 14.0) * f;
+                    float taper = 1F - 0.75F * (float) f;
+                    tx = ax + rx / rd * along + offX[i] * taper;
+                    ty = ay + ry / rd * along + offY[i] * taper;
+                    tz = az + rz / rd * along + offZ[i] * taper;
+                    rest = 0.12F;
+                } else {
+                    tx = ax; ty = ay; tz = az;
+                    rest = home[i] * shellR;
+                }
             } else {
                 tx = ax; ty = ay; tz = az;
                 rest = home[i] * shellR;
@@ -450,7 +500,7 @@ public final class ShoalSwarm {
             case ShoalEntity.STATE_FLOW -> SPAWN_R_FLOW;
             case ShoalEntity.STATE_ORBIT -> SPAWN_R_ORBIT;
             case ShoalEntity.STATE_INSPECT -> SPAWN_R_INSPECT;
-            case ShoalEntity.STATE_TORNADO -> 1.2F;
+            case ShoalEntity.STATE_TORNADO -> 3.0F;
             default -> SPAWN_R_HOLD;
         };
     }
@@ -467,6 +517,18 @@ public final class ShoalSwarm {
         z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
         z ^= z >>> 31;
         return (z >>> 11) * 0x1.0p-53;
+    }
+
+    /** 0..1 shimmer from a fresh interest pick, fading out over its last second. */
+    public float excitement() {
+        return excitement(lastUpdateTickTime);
+    }
+
+    private float excitement(float now) {
+        if (Float.isNaN(now)) return 0F;
+        float remain = exciteUntil - now;
+        if (remain <= 0F) return 0F;
+        return Math.min(1F, remain / 20F);
     }
 
     // Accessors for the renderer.

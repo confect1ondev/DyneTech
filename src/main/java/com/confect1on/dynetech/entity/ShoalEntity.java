@@ -5,6 +5,7 @@ import com.confect1on.dynetech.gene.DTAttachments;
 import com.confect1on.dynetech.gene.EquippedPerks;
 import com.confect1on.dynetech.gene.PerkEntry;
 import com.confect1on.dynetech.gene.Perks;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.syncher.EntityDataAccessor;
 import net.minecraft.network.syncher.EntityDataSerializers;
@@ -15,9 +16,15 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.damagesource.DamageTypes;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
+import net.minecraft.world.entity.ExperienceOrb;
+import net.minecraft.world.entity.LightningBolt;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.Mob;
 import net.minecraft.world.entity.MoverType;
 import net.minecraft.world.entity.item.ItemEntity;
+import net.minecraft.world.entity.item.PrimedTnt;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.Projectile;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.material.PushReaction;
@@ -74,6 +81,19 @@ public class ShoalEntity extends Entity {
             SynchedEntityData.defineId(ShoalEntity.class, EntityDataSerializers.BOOLEAN);
     private static final EntityDataAccessor<Boolean> DATA_PRIMARY =
             SynchedEntityData.defineId(ShoalEntity.class, EntityDataSerializers.BOOLEAN);
+    // Entity id of the current curiosity target (0 = none), synced so the client can string a
+    // visible tendril of motes toward whatever the swarm is studying.
+    private static final EntityDataAccessor<Integer> DATA_INTEREST =
+            SynchedEntityData.defineId(ShoalEntity.class, EntityDataSerializers.INT);
+    // How fast the cloud runs its internal motion right now. Rain tires it, a deliberate
+    // rest drops it to a crawl, a startle spikes it. The client eases toward this value so
+    // mood changes read as the swarm winding up or down rather than switching gears.
+    private static final EntityDataAccessor<Float> DATA_TEMPO =
+            SynchedEntityData.defineId(ShoalEntity.class, EntityDataSerializers.FLOAT);
+    // Entity id of the vacuum drain during Collapse (0 = the anchor). A phase disk flying
+    // past keeps moving, so the client pulls the motes into the disk itself.
+    private static final EntityDataAccessor<Integer> DATA_COLLAPSE_FOCUS =
+            SynchedEntityData.defineId(ShoalEntity.class, EntityDataSerializers.INT);
 
     // Long pauses on purpose. Short holds made the whole loop feel urgent; the Shoal should
     // linger, inspect, and only then move on.
@@ -128,6 +148,32 @@ public class ShoalEntity extends Entity {
     // apart from the ordinary between-state hold and knows when to settle down alongside.
     private boolean resting;
 
+    // Sustained-attention gate for infection: how long the interest has been locked on the
+    // same player, and who. Five seconds of being studied, then contact does the rest.
+    private static final int ATTENTION_INFECT_TICKS = 100;
+    private java.util.UUID attentionUuid;
+    private int attentionTicks;
+
+    // Rolled once from the synced seed. Every Shoal gets its own temperament: patience
+    // stretches or shortens every pause, energy scales travel speed, curiosity tilts how often
+    // nearby things win its attention. Identical constants across all Shoals read as clockwork.
+    private double patience = 1.0;
+    private double energy = 1.0;
+    private double curiosity = 1.0;
+    private boolean personalityRolled;
+
+    // Destination of a glowing-block visit; consumed when the travel ends near it.
+    private Vec3 pendingInspect;
+    // Set by a startle; the next Hold decision turns it into genuine flight.
+    private Vec3 fleeFrom;
+    private long startleCooldownUntil;
+    private long noticeCooldownUntil;
+    private long ambientCooldownUntil;
+    private long clusterCooldownUntil;
+    private long lastDayPhase = -1L;
+    // Set when a currently-watched interest dies; the swarm drifts to the spot for a slow look.
+    private Vec3 pendingWake;
+
     private final java.util.Map<java.util.UUID, Long> boredUntil = new java.util.HashMap<>();
     private final java.util.ArrayDeque<java.util.UUID> recentObserved = new java.util.ArrayDeque<>(3);
     private java.util.UUID engagedUuid;
@@ -145,6 +191,9 @@ public class ShoalEntity extends Entity {
         builder.define(DATA_SEED, 0);
         builder.define(DATA_BURST, false);
         builder.define(DATA_PRIMARY, true);
+        builder.define(DATA_INTEREST, 0);
+        builder.define(DATA_TEMPO, 1.0F);
+        builder.define(DATA_COLLAPSE_FOCUS, 0);
     }
 
     @Override
@@ -197,6 +246,14 @@ public class ShoalEntity extends Entity {
         return this.entityData.get(DATA_BURST);
     }
 
+    public float getTempo() {
+        return this.entityData.get(DATA_TEMPO);
+    }
+
+    public int getCollapseFocusId() {
+        return this.entityData.get(DATA_COLLAPSE_FOCUS);
+    }
+
     public boolean isPrimaryLobe() {
         return this.entityData.get(DATA_PRIMARY);
     }
@@ -226,6 +283,33 @@ public class ShoalEntity extends Entity {
 
     public int getSeed() {
         return this.entityData.get(DATA_SEED);
+    }
+
+    public int getInterestId() {
+        return this.entityData.get(DATA_INTEREST);
+    }
+
+    /**
+     * Rolled deterministically from the synced seed, so the same Shoal keeps the same
+     * temperament across save/load without persisting anything extra.
+     */
+    private void ensurePersonality() {
+        if (this.personalityRolled) return;
+        int seed = this.entityData.get(DATA_SEED);
+        if (seed == 0) return;
+        this.patience = 0.7D + seedUnit(seed, 1) * 0.7D;
+        this.energy = 0.75D + seedUnit(seed, 2) * 0.55D;
+        this.curiosity = 0.7D + seedUnit(seed, 3) * 0.6D;
+        this.personalityRolled = true;
+    }
+
+    /** Splitmix64 of the seed plus a stream index, mapped to [0, 1). */
+    private static double seedUnit(int seed, int stream) {
+        long z = seed * 0x9E3779B97F4A7C15L + stream * 0xBF58476D1CE4E5B9L;
+        z = (z ^ (z >>> 30)) * 0xBF58476D1CE4E5B9L;
+        z = (z ^ (z >>> 27)) * 0x94D049BB133111EBL;
+        z ^= z >>> 31;
+        return (z >>> 11) * 0x1.0p-53;
     }
 
     @Override
@@ -292,7 +376,13 @@ public class ShoalEntity extends Entity {
      * anchor, then discards itself.
      */
     public void collapse() {
+        collapseInto(null);
+    }
+
+    /** Same vacuum, but with a visible drain point: the motes get pulled into the focus. */
+    public void collapseInto(Entity focus) {
         if (this.state == STATE_COLLAPSE) return;
+        this.entityData.set(DATA_COLLAPSE_FOCUS, focus == null ? 0 : focus.getId());
         if (this.level() instanceof ServerLevel server) {
             server.playSound(null, this.getX(), this.getY(), this.getZ(),
                     net.minecraft.sounds.SoundEvents.AMETHYST_BLOCK_CHIME,
@@ -303,7 +393,7 @@ public class ShoalEntity extends Entity {
         setState(STATE_COLLAPSE, COLLAPSE_TICKS);
         // A bonded group dies as one; the re-entry guard above stops the mutual recursion.
         for (ShoalEntity partner : resolvePartners()) {
-            partner.collapse();
+            partner.collapseInto(focus);
         }
     }
 
@@ -318,6 +408,7 @@ public class ShoalEntity extends Entity {
         if (this.entityData.get(DATA_SEED) == 0) {
             this.entityData.set(DATA_SEED, this.random.nextInt(Integer.MAX_VALUE - 1) + 1);
         }
+        ensurePersonality();
 
         this.stateTicks++;
 
@@ -338,6 +429,21 @@ public class ShoalEntity extends Entity {
             case STATE_TORNADO -> tickTornado();
             default -> setState(STATE_HOLD, rollHoldDuration());
         }
+
+        if (this.tickCount % 5 == 0) {
+            maybeStartle();
+            maybeInterestDeath();
+        }
+        if (this.tickCount % 10 == 0) {
+            maybeNotice();
+            updateTempo();
+            maybeDefendPlayer();
+        }
+        if (this.tickCount % 20 == 0) {
+            maybeAmbient();
+            maybeDayPhaseFlicker();
+        }
+        maybeDamageHostile();
 
         // Continuous glue for the secondary, on top of whatever its state is doing. Decisions
         // alone let the pair drift apart mid-state; this keeps the clouds overlapping always,
@@ -372,6 +478,25 @@ public class ShoalEntity extends Entity {
         // The secondary never decides anything. It answers the primary's current state so the
         // pair reads as one organism with two lobes. If the primary is gone it inherits the
         // lead and the full decision chain below.
+        // A startle resolves into flight: the burst hold covered the freeze, now the primary
+        // puts real distance between the swarm and whatever rushed it. Secondaries just drop
+        // the marker and follow the leader out as usual.
+        if (this.fleeFrom != null) {
+            Vec3 from = this.fleeFrom;
+            this.fleeFrom = null;
+            if (this.primary) {
+                setInterest(null);
+                Vec3 flat = new Vec3(this.getX() - from.x, 0.0D, this.getZ() - from.z);
+                Vec3 dir = flat.lengthSqr() < 1.0E-4D
+                        ? new Vec3(1.0D, 0.0D, 0.0D)
+                        : flat.normalize();
+                double dist = 8.0D + this.random.nextDouble() * 8.0D;
+                planFlow(this.position().add(dir.scale(dist))
+                        .add(0.0D, 1.0D + this.random.nextDouble() * 2.0D, 0.0D));
+                return;
+            }
+        }
+
         ShoalEntity partner = resolvePartner();
         if (!this.primary && partner != null) {
             followPrimary(partner);
@@ -379,7 +504,7 @@ public class ShoalEntity extends Entity {
         }
 
         Entity interest = pickInterest();
-        this.interestUuid = interest == null ? null : interest.getUUID();
+        setInterest(interest);
 
         // Nothing catches its eye and the neighborhood is all old news: leave. A long Flow to
         // somewhere fresh reads much more alive than milling around bored things.
@@ -388,45 +513,79 @@ public class ShoalEntity extends Entity {
             return;
         }
 
-        if (interest instanceof ItemEntity
+        if ((interest instanceof ItemEntity || interest instanceof ExperienceOrb)
                 && this.distanceToSqr(interest) < ORBIT_NOTICE_RANGE * ORBIT_NOTICE_RANGE) {
-            // Three ways to fuss over an item so the ring isn't the default answer: the tight
-            // swirl, a lazy braided lap past it, or just hanging nearby watching. A lure always
-            // engages but still varies which.
+            // Prefer the braided flow lap and the settle-and-watch inspect. The tight ring is
+            // dramatic but reads as machinery when it's the default answer, so it stays rare.
+            // Lures still bias the roll toward engaging at all.
             float r = isLure(interest) ? this.random.nextFloat() * 0.75F : this.random.nextFloat();
-            if (r < 0.25F) {
+            r /= (float) this.curiosity;
+            if (r < 0.08F) {
                 planOrbit(interest);
                 return;
             }
-            if (r < 0.50F) {
+            if (r < 0.55F) {
                 planFlowLoop(interest);
                 return;
             }
-            if (r < 0.75F) {
+            if (r < 0.85F) {
                 planInspect(interest);
                 return;
             }
         }
-        if (interest != null && !(interest instanceof ItemEntity)) {
+        if (interest != null && !(interest instanceof ItemEntity) && !(interest instanceof ExperienceOrb)) {
             double distSq = this.distanceToSqr(interest);
             if (distSq < INSPECT_NOTICE_RANGE * INSPECT_NOTICE_RANGE) {
-                float r = this.random.nextFloat();
-                // Rarely, the whole swarm winds itself around the creature as a funnel.
-                if (r < 0.06F) {
+                float r = this.random.nextFloat() / (float) this.curiosity;
+                // Tornado stays a rare showpiece so the funnel keeps its punch.
+                if (r < 0.02F) {
                     planTornado(interest);
                     return;
                 }
-                if (r < 0.45F) {
+                if (r < 0.40F) {
                     planInspect(interest);
                     return;
                 }
-                if (r < 0.70F) {
+                if (r < 0.90F) {
                     planFlowLoop(interest);
                     return;
                 }
             }
-            if (distSq > FLOW_MIN_RANGE * FLOW_MIN_RANGE && this.random.nextFloat() < 0.6F) {
+            if (distSq > FLOW_MIN_RANGE * FLOW_MIN_RANGE && this.random.nextFloat() < 0.75F) {
                 planFlow(orbitPoint(interest));
+                return;
+            }
+        }
+
+        // A watched creature just died: drift to the last known spot for a slow inspect.
+        if (this.pendingWake != null) {
+            Vec3 spot = this.pendingWake;
+            this.pendingWake = null;
+            this.pendingInspect = spot.add(0.0D, 1.1D, 0.0D);
+            planFlow(spot.add(0.0D, 1.5D, 0.0D));
+            return;
+        }
+
+        // Nothing living or dropped around: sometimes a glowing block nearby is worth a trip.
+        // The swarm flows over and settles above it, nosing at the light.
+        if (interest == null && this.random.nextFloat() < 0.25F * (float) this.curiosity) {
+            Vec3 glow = findGlowSpot();
+            if (glow != null) {
+                this.pendingInspect = glow.add(0.0D, 1.1D, 0.0D);
+                planFlow(glow.add(0.0D, 1.5D, 0.0D));
+                return;
+            }
+        }
+
+        // Loose flocking: two solo Shoals within range visibly find each other over a minute
+        // or so of play, without pairing up as bonded partners.
+        if (interest == null && this.random.nextFloat() < 0.35F) {
+            ShoalEntity peer = findClusterPeer();
+            if (peer != null) {
+                planFlow(peer.position().add(
+                        (this.random.nextDouble() - 0.5D) * 4.0D,
+                        1.0D + this.random.nextDouble() * 2.0D,
+                        (this.random.nextDouble() - 0.5D) * 4.0D));
                 return;
             }
         }
@@ -439,13 +598,13 @@ public class ShoalEntity extends Entity {
         }
 
         float roll = this.random.nextFloat();
-        if (roll < 0.18F) {
+        if (roll < 0.10F) {
             setState(STATE_HOLD, rollHoldDuration());
-        } else if (roll < 0.32F) {
+        } else if (roll < 0.18F) {
             planRest();
-        } else if (roll < 0.48F) {
+        } else if (roll < 0.30F) {
             planInspect(null);
-        } else if (roll < 0.76F) {
+        } else if (roll < 0.60F) {
             planDrift(interest);
         } else {
             planFlow(rollDestination(FLOW_MIN_RANGE, FLOW_MAX_RANGE));
@@ -524,7 +683,8 @@ public class ShoalEntity extends Entity {
      * counts as moving. Half of each keeps the downtime itself from becoming predictable.
      */
     private void planRest() {
-        int duration = 300 + this.random.nextInt(300);
+        setInterest(null);
+        int duration = (int) ((300 + this.random.nextInt(300)) * this.patience * weatherMood());
         if (this.random.nextBoolean()) {
             setState(STATE_HOLD, duration);
         } else {
@@ -535,25 +695,34 @@ public class ShoalEntity extends Entity {
     }
 
     private void tickDrift() {
-        if (this.waypoints.isEmpty()) {
-            setState(STATE_HOLD, rollHoldDuration());
+        if (this.waypoints.isEmpty() || this.stateTicks >= this.stateDuration) {
+            finishTravel();
             return;
         }
         moveTowardCurrentWaypoint(DRIFT_SPEED);
-        if (this.stateTicks >= this.stateDuration) {
-            setState(STATE_HOLD, rollHoldDuration());
-        }
     }
 
     private void tickFlow() {
-        if (this.waypoints.isEmpty()) {
-            setState(STATE_HOLD, rollHoldDuration());
+        if (this.waypoints.isEmpty() || this.stateTicks >= this.stateDuration) {
+            finishTravel();
             return;
         }
         moveTowardCurrentWaypoint(FLOW_SPEED);
-        if (this.stateTicks >= this.stateDuration) {
-            setState(STATE_HOLD, rollHoldDuration());
+    }
+
+    /**
+     * Travel is over. If the trip was toward a glowing block and the swarm actually got there,
+     * settle straight into a slow inspection on top of it; otherwise the usual pause.
+     */
+    private void finishTravel() {
+        Vec3 spot = this.pendingInspect;
+        this.pendingInspect = null;
+        if (spot != null && this.position().distanceToSqr(spot) < 36.0D) {
+            planInspect(null);
+            this.inspectCenter = spot;
+            return;
         }
+        setState(STATE_HOLD, rollHoldDuration());
     }
 
     private void moveTowardCurrentWaypoint(double speed) {
@@ -603,7 +772,7 @@ public class ShoalEntity extends Entity {
      * somewhere nearby. Reads as a curious fly-by rather than committing to a ring.
      */
     private void planFlowLoop(Entity target) {
-        this.interestUuid = target.getUUID();
+        setInterest(target);
         this.waypoints.clear();
         double radius = 2.2D + this.random.nextDouble() * 1.6D;
         Vec3 toSelf = this.position().subtract(target.position());
@@ -624,13 +793,13 @@ public class ShoalEntity extends Entity {
     }
 
     private void planOrbit(Entity target) {
-        this.interestUuid = target.getUUID();
+        setInterest(target);
         this.orbitRadius = 1.5D + this.random.nextDouble() * 1.2D;
         this.orbitAngular = (0.03D + this.random.nextDouble() * 0.05D)
                 * (this.random.nextBoolean() ? 1.0D : -1.0D);
         Vec3 toSelf = this.position().subtract(target.position());
         this.orbitAngle = Math.atan2(toSelf.z, toSelf.x);
-        setState(STATE_ORBIT, MIN_ORBIT_TICKS + this.random.nextInt(MAX_ORBIT_TICKS - MIN_ORBIT_TICKS + 1));
+        setState(STATE_ORBIT, rollDuration(MIN_ORBIT_TICKS, MAX_ORBIT_TICKS));
     }
 
     private void tickOrbit() {
@@ -654,7 +823,7 @@ public class ShoalEntity extends Entity {
     }
 
     private void planTornado(Entity target) {
-        this.interestUuid = target.getUUID();
+        setInterest(target);
         setState(STATE_TORNADO, MIN_TORNADO_TICKS + this.random.nextInt(MAX_TORNADO_TICKS - MIN_TORNADO_TICKS + 1));
     }
 
@@ -675,14 +844,14 @@ public class ShoalEntity extends Entity {
 
     private void planInspect(Entity focus) {
         if (focus != null) {
-            this.interestUuid = focus.getUUID();
+            setInterest(focus);
             this.inspectCenter = standoffPoint(focus);
         } else {
-            this.interestUuid = null;
+            setInterest(null);
             this.inspectCenter = this.position();
         }
         this.microTarget = rollMicroTarget();
-        setState(STATE_INSPECT, MIN_INSPECT_TICKS + this.random.nextInt(MAX_INSPECT_TICKS - MIN_INSPECT_TICKS + 1));
+        setState(STATE_INSPECT, rollDuration(MIN_INSPECT_TICKS, MAX_INSPECT_TICKS));
     }
 
     /**
@@ -730,7 +899,7 @@ public class ShoalEntity extends Entity {
             this.engagedUuid = uuid;
             this.engagement = 1;
         }
-        if (this.random.nextFloat() < 0.3F * this.engagement) {
+        if (this.random.nextFloat() < 0.3F * this.engagement / (float) this.curiosity) {
             long until = this.level().getGameTime() + 1200L + this.random.nextInt(2400);
             this.boredUntil.values().removeIf(t -> t <= this.level().getGameTime());
             this.boredUntil.put(uuid, until);
@@ -785,6 +954,11 @@ public class ShoalEntity extends Entity {
         return this.inspectCenter.add(Math.cos(a) * r, dy, Math.sin(a) * r);
     }
 
+    private void setInterest(Entity e) {
+        this.interestUuid = e == null ? null : e.getUUID();
+        this.entityData.set(DATA_INTEREST, e == null ? 0 : e.getId());
+    }
+
     private Entity resolveInterest() {
         if (this.interestUuid == null || !(this.level() instanceof ServerLevel server)) return null;
         return server.getEntity(this.interestUuid);
@@ -831,7 +1005,7 @@ public class ShoalEntity extends Entity {
 
     /** Each trip gets its own pace, anywhere from a lazy meander to an eager rush. */
     private double rollSpeedMul() {
-        return 0.55D + this.random.nextDouble() * 0.9D;
+        return (0.55D + this.random.nextDouble() * 0.9D) * this.energy;
     }
 
     /**
@@ -887,8 +1061,20 @@ public class ShoalEntity extends Entity {
         Entity best = null;
         double bestScore = Double.MAX_VALUE;
         for (Entity e : this.level().getEntities(this, scan, this::isInteresting)) {
-            double weight = isLure(e) ? 0.05D
-                    : e instanceof ItemEntity ? 0.5D : e instanceof Player ? 0.8D : 1.0D;
+            double weight;
+            if (isLure(e)) {
+                weight = 0.05D;
+            } else if (e instanceof ItemEntity item) {
+                // Anything enchanted glitters, and glitter is hard to pass up.
+                weight = item.getItem().hasFoil() ? 0.3D : 0.5D;
+            } else if (e instanceof ExperienceOrb) {
+                weight = 0.4D;
+            } else if (e instanceof Player p) {
+                // Fast movement catches its eye the way it would a cat's.
+                weight = p.isSprinting() ? 0.55D : 0.8D;
+            } else {
+                weight = 1.0D;
+            }
             // The last three things it looked at are progressively less tempting, most recent
             // least of all, so attention naturally rotates through whatever is around. The lure
             // is exempt: it always fascinates.
@@ -915,21 +1101,35 @@ public class ShoalEntity extends Entity {
         if (e instanceof ShoalEntity) return false;
         if (!isLure(e) && isBoredOf(e)) return false;
         if (e instanceof Player p) return !p.isSpectator() && p.isAlive();
-        if (e instanceof ItemEntity) return true;
+        if (e instanceof ItemEntity || e instanceof ExperienceOrb) return true;
         if (e instanceof net.minecraft.world.entity.LivingEntity l) return l.isAlive();
         return false;
     }
 
+    /**
+     * Infection is no longer a walk-by hazard. The swarm has to be actively studying the
+     * player, interest locked on them for a sustained beat, and the player has to be inside
+     * the cloud when the study completes. The visible tendril settling on you and staying
+     * there is the warning; step away or break its attention before it finishes.
+     */
     private void applyContactInfection() {
         if (!(this.level() instanceof ServerLevel server)) return;
+        if (!(resolveInterest() instanceof Player watched)
+                || watched.isSpectator() || watched.isCreative() || !watched.isAlive()) {
+            this.attentionUuid = null;
+            this.attentionTicks = 0;
+            return;
+        }
+        if (watched.getUUID().equals(this.attentionUuid)) {
+            this.attentionTicks++;
+        } else {
+            this.attentionUuid = watched.getUUID();
+            this.attentionTicks = 1;
+        }
         double infectRadius = DTConfig.SHOAL_INFECT_RADIUS.get();
-        AABB range = new AABB(this.getX() - infectRadius, this.getY() - infectRadius, this.getZ() - infectRadius,
-                this.getX() + infectRadius, this.getY() + infectRadius, this.getZ() + infectRadius);
-        List<Player> nearby = this.level().getEntitiesOfClass(Player.class, range);
-        for (Player player : nearby) {
-            if (player.isSpectator() || player.isCreative()) continue;
-            if (player.distanceToSqr(this) > infectRadius * infectRadius) continue;
-            infect(server, player);
+        if (this.attentionTicks >= ATTENTION_INFECT_TICKS
+                && watched.distanceToSqr(this) <= infectRadius * infectRadius) {
+            infect(server, watched);
         }
     }
 
@@ -941,6 +1141,16 @@ public class ShoalEntity extends Entity {
         EquippedPerks updated = eq.add(entry);
         player.setData(DTAttachments.EQUIPPED_PERKS.get(), updated);
         Perks.SHOAL_INCUBATION.get().onEquip(player, entry);
+        // The moment itself is unmistakable: a flurry of motes washes over the player with a
+        // low chime, so the infection never reads as a silent stat change.
+        double px = player.getX();
+        double py = player.getY() + player.getBbHeight() * 0.6D;
+        double pz = player.getZ();
+        server.sendParticles(com.confect1on.dynetech.particle.DTParticles.SHOAL_MOTE.get(),
+                px, py, pz, 80, 0.5D, 0.7D, 0.5D, 0.08D);
+        server.playSound(null, px, py, pz,
+                net.minecraft.sounds.SoundEvents.AMETHYST_BLOCK_RESONATE,
+                net.minecraft.sounds.SoundSource.HOSTILE, 1.2F, 0.6F);
     }
 
     private void setState(byte next, int duration) {
@@ -948,7 +1158,11 @@ public class ShoalEntity extends Entity {
         // so a startled Shoal can pull its partner into the same freeze and the pair pops
         // outward together instead of each client rolling its own dice.
         if (next == STATE_HOLD && this.state != STATE_HOLD
-                && this.random.nextFloat() < 0.15F) {
+                && this.random.nextFloat() < 0.35F) {
+            // The burst opens into a spread watch: the cloud parks its lobes apart and takes
+            // in several nearby things at once, so this hold runs far longer than a normal
+            // rest. Startles bypass this path and keep their quick freeze-then-flee timing.
+            duration = 200 + this.random.nextInt(401);
             this.entityData.set(DATA_BURST, true);
             for (ShoalEntity partner : resolvePartners()) {
                 if (partner.state != STATE_COLLAPSE && this.random.nextFloat() < 0.85F) {
@@ -978,7 +1192,316 @@ public class ShoalEntity extends Entity {
     }
 
     private int rollHoldDuration() {
-        return MIN_HOLD_TICKS + this.random.nextInt(MAX_HOLD_TICKS - MIN_HOLD_TICKS + 1);
+        return rollDuration(MIN_HOLD_TICKS, MAX_HOLD_TICKS);
+    }
+
+    /**
+     * The mood dial behind the synced tempo. Same shapes, different pace: the client scales
+     * its whole mote sim by this, so a tired swarm mills in slow motion and a spooked one
+     * whirls. Rain wears it down; a deliberate rest in the rain sinks to a bare crawl.
+     */
+    private void updateTempo() {
+        double tempo = this.energy;
+        if (this.fleeFrom != null) tempo *= 1.9D;
+        if (this.level().isRaining()) tempo *= 0.55D;
+        if (this.resting) tempo *= this.level().isRaining() ? 0.35D : 0.5D;
+        // Water reads as pressure: the motes still stir but the whole cloud drags. Nether
+        // heat does the opposite, a warm quickening.
+        if (this.isInWater()) tempo *= 0.35D;
+        if (this.level().dimensionType().ultraWarm()) tempo *= 1.3D;
+        float next = (float) Math.max(0.12D, Math.min(2.2D, tempo));
+        if (Math.abs(next - this.entityData.get(DATA_TEMPO)) > 0.01F) {
+            this.entityData.set(DATA_TEMPO, next);
+        }
+    }
+
+    /**
+     * Mood-scaled duration roll with a fat tail: usually a uniform pick scaled by this Shoal's
+     * patience and the weather, occasionally nearly double, so the same animal sometimes stares
+     * at a thing for a strangely long time.
+     */
+    private int rollDuration(int min, int max) {
+        int base = min + this.random.nextInt(max - min + 1);
+        if (this.random.nextFloat() < 0.08F) {
+            base += base;
+        }
+        return Math.max(20, (int) (base * this.patience * weatherMood()));
+    }
+
+    /**
+     * Rain makes it sluggish, night makes it restless. Small factors on purpose; the point is
+     * that someone who watches Shoals long enough notices the rhythm, not a hard mode switch.
+     */
+    private double weatherMood() {
+        double mood = 1.0D;
+        if (this.level().isRaining()) mood *= 1.3D;
+        if (this.level().isNight()) mood *= 0.8D;
+        return mood;
+    }
+
+    /**
+     * A handful of random samples looking for a light-emitting block nearby. Torches, lanterns,
+     * glowstone, amethyst clusters: anything that shines is worth a visit.
+     */
+    private Vec3 findGlowSpot() {
+        for (int i = 0; i < 10; i++) {
+            BlockPos pos = BlockPos.containing(
+                    this.getX() + (this.random.nextDouble() - 0.5D) * 24.0D,
+                    this.getY() + (this.random.nextDouble() - 0.5D) * 10.0D,
+                    this.getZ() + (this.random.nextDouble() - 0.5D) * 24.0D);
+            if (this.level().getBlockState(pos).getLightEmission() >= 7) {
+                return Vec3.atCenterOf(pos);
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Sudden things spook it. A player sprinting straight into the cloud, a nearby lightning
+     * strike, primed TNT about to blow, or a fast projectile skimming past. The startle
+     * reuses the burst-and-freeze, spreads to the whole bonded group, and the next Hold
+     * decision turns into genuine flight. The cooldown keeps a circling sprinter from
+     * chain-spooking the swarm forever.
+     */
+    private void maybeStartle() {
+        if (this.state == STATE_COLLAPSE) return;
+        long time = this.level().getGameTime();
+        if (time < this.startleCooldownUntil) return;
+        Player rusher = null;
+        for (Player p : this.level().getEntitiesOfClass(Player.class, this.getBoundingBox().inflate(5.0D))) {
+            if (!p.isSpectator() && p.isSprinting()) {
+                rusher = p;
+                break;
+            }
+        }
+        Vec3 threat = rusher != null ? rusher.position() : null;
+        if (threat == null) {
+            // Primed TNT reads as a countdown: the swarm bolts before the boom, not after.
+            List<PrimedTnt> primed = this.level().getEntitiesOfClass(
+                    PrimedTnt.class, this.getBoundingBox().inflate(20.0D));
+            if (!primed.isEmpty()) threat = primed.get(0).position();
+        }
+        if (threat == null) {
+            // An actual bolt entity, not the ambient storm, so the swarm visibly reacts to the
+            // strike itself and flees away from where it landed.
+            List<LightningBolt> bolts = this.level().getEntitiesOfClass(
+                    LightningBolt.class, this.getBoundingBox().inflate(48.0D));
+            if (!bolts.isEmpty()) threat = bolts.get(0).position();
+        }
+        if (threat == null) {
+            // Fast projectile passing close - arrow, snowball, potion, egg. Slow lobs fall
+            // below the threshold so a gentle underhand toss doesn't spook the swarm.
+            for (Projectile proj : this.level().getEntitiesOfClass(
+                    Projectile.class, this.getBoundingBox().inflate(5.0D))) {
+                if (proj.getDeltaMovement().lengthSqr() > 0.25D) {
+                    threat = proj.position();
+                    break;
+                }
+            }
+        }
+        if (threat == null) return;
+        this.startleCooldownUntil = time + 300L + this.random.nextInt(300);
+        this.fleeFrom = threat;
+        startleWith(15 + this.random.nextInt(20));
+        for (ShoalEntity partner : resolvePartners()) {
+            if (partner.state != STATE_COLLAPSE) {
+                partner.fleeFrom = this.fleeFrom;
+                partner.startleCooldownUntil = this.startleCooldownUntil;
+                partner.startleWith(15 + this.random.nextInt(20));
+            }
+        }
+    }
+
+    /**
+     * Reactive attention. The Hold loop only reconsiders the world when a pause runs out,
+     * which read as long seconds of indifference to a drop landing right beside the cloud.
+     * This is the fast path: something genuinely new and salient nearby, a fresh drop, a
+     * fresh orb, a sprinting player, cuts the current activity short within about half a
+     * second. The tendril points at it immediately; the engagement itself follows from the
+     * short look-hold set here.
+     */
+    private void maybeNotice() {
+        if (!this.primary || this.fleeFrom != null) return;
+        if (this.state == STATE_COLLAPSE || this.state == STATE_TORNADO) return;
+        long time = this.level().getGameTime();
+        if (time < this.noticeCooldownUntil) return;
+        Entity fresh = pickSalient();
+        if (fresh == null) return;
+        this.noticeCooldownUntil = time + 40L + this.random.nextInt(40);
+        setInterest(fresh);
+        interruptToLook(8 + this.random.nextInt(12));
+    }
+
+    /** Nearest newly-appeared temptation that is not already the current interest. */
+    private Entity pickSalient() {
+        AABB scan = this.getBoundingBox().inflate(ORBIT_NOTICE_RANGE);
+        Entity best = null;
+        double bestDist = Double.MAX_VALUE;
+        for (Entity e : this.level().getEntities(this, scan, this::isInteresting)) {
+            if (e.getUUID().equals(this.interestUuid)) continue;
+            boolean salient = isLure(e)
+                    || (e instanceof ItemEntity item && item.getAge() < 60)
+                    || (e instanceof ExperienceOrb && e.tickCount < 60)
+                    || (e instanceof Player p && (p.isSprinting() || p.isCrouching()));
+            if (!salient) continue;
+            double d = this.distanceToSqr(e);
+            if (d < bestDist) {
+                bestDist = d;
+                best = e;
+            }
+        }
+        return best;
+    }
+
+    /**
+     * Ambient chime. A soft resonate at long random intervals turns a parked cloud from a
+     * silent particle system into a thing that occasionally sings to itself. Skipped in
+     * high-intensity states so it never fights the vacuum or the freeze for attention.
+     */
+    private void maybeAmbient() {
+        if (!(this.level() instanceof ServerLevel server)) return;
+        long time = this.level().getGameTime();
+        if (time < this.ambientCooldownUntil) return;
+        this.ambientCooldownUntil = time + 400L + this.random.nextInt(1600);
+        if (this.state == STATE_COLLAPSE || this.state == STATE_TORNADO) return;
+        if (this.random.nextFloat() < 0.6F) return;
+        float pitch = 0.6F + this.random.nextFloat() * 0.5F;
+        server.playSound(null, this.getX(), this.getY() + 0.7D, this.getZ(),
+                net.minecraft.sounds.SoundEvents.AMETHYST_BLOCK_CHIME,
+                net.minecraft.sounds.SoundSource.AMBIENT, 0.35F, pitch);
+    }
+
+    /**
+     * Once per dawn and dusk the cloud stirs: a longer chime and an inspect-in-place, so a
+     * player watching the same swarm across days notices it greet the day and settle at
+     * night. Guarded so a Shoal that appears at noon doesn't fire immediately.
+     */
+    private void maybeDayPhaseFlicker() {
+        if (!(this.level() instanceof ServerLevel server)) return;
+        long day = this.level().getDayTime() % 24000L;
+        long phase = day < 12000L ? 0L : 1L;
+        if (this.lastDayPhase == -1L) {
+            this.lastDayPhase = phase;
+            return;
+        }
+        if (phase == this.lastDayPhase) return;
+        this.lastDayPhase = phase;
+        server.playSound(null, this.getX(), this.getY() + 0.7D, this.getZ(),
+                net.minecraft.sounds.SoundEvents.AMETHYST_BLOCK_RESONATE,
+                net.minecraft.sounds.SoundSource.AMBIENT, 0.5F, phase == 0L ? 0.9F : 0.7F);
+        if (this.primary && this.state != STATE_COLLAPSE && this.fleeFrom == null) {
+            planInspect(null);
+            this.stateDuration = 120 + this.random.nextInt(120);
+        }
+    }
+
+    /**
+     * If the currently-watched entity died in the last few ticks, the swarm keeps its focus
+     * on the last known spot for a slow inspect and a low chime. Reads as the cloud mourning
+     * or at least noticing the absence, rather than snapping to the next target.
+     */
+    private void maybeInterestDeath() {
+        if (!this.primary || this.interestUuid == null) return;
+        if (!(this.level() instanceof ServerLevel server)) return;
+        Entity focus = server.getEntity(this.interestUuid);
+        if (focus == null) {
+            this.interestUuid = null;
+            this.entityData.set(DATA_INTEREST, 0);
+            return;
+        }
+        if (focus instanceof LivingEntity l && !l.isAlive() && this.pendingWake == null) {
+            this.pendingWake = focus.position();
+            server.playSound(null, focus.getX(), focus.getY() + 0.5D, focus.getZ(),
+                    net.minecraft.sounds.SoundEvents.AMETHYST_BLOCK_HIT,
+                    net.minecraft.sounds.SoundSource.AMBIENT, 0.4F, 0.55F);
+        }
+    }
+
+    /**
+     * The friendly-defender side of the swarm. If a mob nearby is targeting a player, the
+     * Shoal picks the nearest offender as interest and drops a tornado on it. Damage is
+     * applied in {@link #maybeDamageHostile()} while the tornado runs, so the visible funnel
+     * carries the meaning of the attack. The infection loop still runs independently on
+     * whoever the swarm happens to study, which is the point: it saves people from mobs it
+     * hasn't recognised as hosts yet.
+     */
+    private void maybeDefendPlayer() {
+        if (!this.primary || this.state == STATE_COLLAPSE || this.fleeFrom != null) return;
+        if (this.state == STATE_TORNADO) return;
+        AABB scan = this.getBoundingBox().inflate(20.0D);
+        Mob best = null;
+        double bestSq = Double.MAX_VALUE;
+        for (Mob m : this.level().getEntitiesOfClass(Mob.class, scan)) {
+            LivingEntity target = m.getTarget();
+            if (!(target instanceof Player p) || !p.isAlive() || p.isSpectator()) continue;
+            if (p.distanceToSqr(m) > 24.0D * 24.0D) continue;
+            double d = this.distanceToSqr(m);
+            if (d < bestSq) {
+                bestSq = d;
+                best = m;
+            }
+        }
+        if (best == null) return;
+        setInterest(best);
+        planTornado(best);
+    }
+
+    /**
+     * While the swarm is funnelling a hostile that's still targeting a player, deal a slow
+     * bleed of damage. Small per-tick number so the tornado runs for its whole duration and
+     * the mob visibly withers instead of vaporising, and gated on the target still hunting
+     * so a mob that gives up is not chased down.
+     */
+    private void maybeDamageHostile() {
+        if (this.state != STATE_TORNADO) return;
+        if (this.tickCount % 8 != 0) return;
+        if (!(resolveInterest() instanceof Mob mob) || !mob.isAlive()) return;
+        if (!(mob.getTarget() instanceof Player)) return;
+        mob.hurt(this.damageSources().magic(), 1.0F);
+    }
+
+    /**
+     * Loose flocking between unbonded Shoals. On a Hold decision, if another primary Shoal is
+     * within a comfortable range and neither is startled or collapsing, drift toward them so
+     * two lone clouds visibly find each other over a minute or two of play.
+     */
+    private ShoalEntity findClusterPeer() {
+        long time = this.level().getGameTime();
+        if (time < this.clusterCooldownUntil) return null;
+        AABB scan = this.getBoundingBox().inflate(32.0D);
+        ShoalEntity best = null;
+        double bestSq = Double.MAX_VALUE;
+        for (ShoalEntity other : this.level().getEntitiesOfClass(ShoalEntity.class, scan)) {
+            if (other == this) continue;
+            if (other.state == STATE_COLLAPSE || other.fleeFrom != null) continue;
+            if (this.partnerUuids.contains(other.getUUID())) continue;
+            double d = this.distanceToSqr(other);
+            if (d < bestSq) {
+                bestSq = d;
+                best = other;
+            }
+        }
+        if (best != null) {
+            this.clusterCooldownUntil = time + 600L + this.random.nextInt(600);
+        }
+        return best;
+    }
+
+    /**
+     * Snap out of the current activity to face something. Deliberately bypasses setState so
+     * the glance can never roll the startle burst; the client freeze that comes with it would
+     * hold the motes rigid for seconds, the opposite of a quick reaction.
+     */
+    private void interruptToLook(int duration) {
+        this.waypoints.clear();
+        this.pendingInspect = null;
+        this.setDeltaMovement(Vec3.ZERO);
+        this.state = STATE_HOLD;
+        this.stateTicks = 0;
+        this.stateDuration = duration;
+        this.resting = false;
+        this.entityData.set(DATA_STATE, STATE_HOLD);
+        this.entityData.set(DATA_BURST, false);
     }
 
     // Persistence: keep the Shoal loaded once it exists so its state machine doesn't get reset

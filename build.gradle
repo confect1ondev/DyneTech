@@ -13,6 +13,21 @@ repositories {
         name = 'JitPack'
         url = 'https://jitpack.io'
     }
+    maven {
+        name = 'BlameJared Maven'
+        url = 'https://maven.blamejared.com'
+    }
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'RyanHCode Maven'
+                url = 'https://maven.ryanhcode.dev/releases'
+            }
+        }
+        filter {
+            includeGroup 'foundry.imguimc'
+        }
+    }
 }
 
 base {
@@ -78,6 +93,11 @@ sourceSets.main.resources { srcDir 'src/generated/resources' }
 
 dependencies {
     implementation "com.github.Virtuoel:Pehkui:${pehkui_version}"
+    implementation("foundry.veil:veil-neoforge-${minecraft_version}:${veil_version}") {
+        exclude group: 'maven.modrinth'
+        exclude group: 'me.fallenbreath'
+    }
+    runtimeOnly "foundry.imguimc:imguimc-neoforge-${minecraft_version}:${imguimc_version}"
 }
 
 processResources {

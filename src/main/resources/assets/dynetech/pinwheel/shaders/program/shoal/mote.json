@@ -1,0 +1,7 @@
+{
+  "vertex": "dynetech:shoal/mote",
+  "fragment": "dynetech:shoal/mote",
+  "required_features": [
+    "shader_storage"
+  ]
+}

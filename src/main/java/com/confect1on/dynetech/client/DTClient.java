@@ -106,6 +106,9 @@ public class DTClient {
                 // Register the runtime-generated Shoal mote sprite before anything can request it.
                 ShoalMoteTexture.ensureRegistered();
 
+                // Hook the GPU Shoal manager into Veil's render-stage and resource-free events.
+                com.confect1on.dynetech.client.renderer.shoal.ShoalSwarmManager.init();
+
                 // Lethal-mode TCE swaps to a red-tip model via this override.
                 ItemProperties.register(
                         DTItems.TISSUE_COMPRESSION_ELIMINATOR.get(),
@@ -254,6 +257,10 @@ public class DTClient {
         @SubscribeEvent
         public static void onLoggedOut(ClientPlayerNetworkEvent.LoggingOut e) {
             ClientStructureCache.clear();
+            // Drop the Shoal GPU buffers on the render thread; the periodic sweep only runs
+            // while swarms are actively rendering, which they no longer are after a disconnect.
+            net.minecraft.client.Minecraft.getInstance().execute(
+                    com.confect1on.dynetech.client.renderer.shoal.ShoalSwarmManager::freeAll);
         }
 
         @SubscribeEvent

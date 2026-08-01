@@ -1,8 +1,10 @@
 package com.confect1on.dynetech.client.renderer;
 
+import com.confect1on.dynetech.client.renderer.shoal.ShoalSwarmManager;
 import com.confect1on.dynetech.entity.ShoalEntity;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
+import foundry.veil.api.client.render.VeilRenderSystem;
 import net.minecraft.client.Camera;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.LightTexture;
@@ -29,15 +31,26 @@ import java.util.WeakHashMap;
  */
 public class ShoalRenderer extends EntityRenderer<ShoalEntity> {
 
-    // Two thirds of the old solo-pair budget: the swarm now travels as a trio, so each lobe
-    // carries fewer motes to keep the total on screen roughly where it was.
-    private static final int SWARM_CAPACITY = 530;
-    private static final int MAX_MOTES_NEAR = 530;
-    private static final int MAX_MOTES_MID = 270;
-    private static final int MAX_MOTES_FAR = 100;
-    private static final float NEAR_DIST_SQ = 24F * 24F;
-    private static final float MID_DIST_SQ = 48F * 48F;
-    private static final float CULL_DIST_SQ = 96F * 96F;
+    // CPU-fallback pool. Kept modest so older hardware without SSBO support can still run it.
+    private static final int SWARM_CAPACITY = 900;
+    private static final int MAX_MOTES_NEAR = 900;
+    private static final int MAX_MOTES_MID = 480;
+    private static final int MAX_MOTES_FAR = 180;
+
+    // The GPU path affords a denser cloud; LOD only shrinks the draw call, the sim always
+    // integrates the full pool so nothing pops when the camera crosses a threshold.
+    private static final int GPU_MOTES_NEAR = ShoalSwarmManager.MOTE_COUNT;
+    private static final int GPU_MOTES_MID = 4608;
+    private static final int GPU_MOTES_FAR = 1536;
+
+    // Decided once on first render: needs compute + SSBOs (GL 4.3) and a driver that exposes
+    // SSBOs to vertex shaders for the pulling draw. Otherwise the CPU path below still runs.
+    private static Boolean gpuPath;
+    // LOD cutoffs pushed out with the bigger cloud so a nearby swarm keeps its full pool much
+    // longer before dropping to the mid tier.
+    private static final float NEAR_DIST_SQ = 40F * 40F;
+    private static final float MID_DIST_SQ = 80F * 80F;
+    private static final float CULL_DIST_SQ = 150F * 150F;
 
     // Luminous blue base color. Vertex alpha now drives the fade directly (alpha blend), so no
     // premultiplication needed.
@@ -64,12 +77,13 @@ public class ShoalRenderer extends EntityRenderer<ShoalEntity> {
     @Override
     public boolean shouldRender(ShoalEntity entity, net.minecraft.client.renderer.culling.Frustum frustum,
                                 double camX, double camY, double camZ) {
-        // Cheap radius cull; the mote AABB extends past the entity's own 1.5-block box.
+        // Cheap radius cull; the mote AABB extends past the entity's own box by the shell radius
+        // the tornado and inspect states spread to.
         double dx = entity.getX() - camX;
         double dy = entity.getY() - camY;
         double dz = entity.getZ() - camZ;
         if (dx * dx + dy * dy + dz * dz > CULL_DIST_SQ) return false;
-        return frustum.isVisible(entity.getBoundingBox().inflate(6.0));
+        return frustum.isVisible(entity.getBoundingBox().inflate(14.0));
     }
 
     @Override
@@ -85,6 +99,15 @@ public class ShoalRenderer extends EntityRenderer<ShoalEntity> {
         double dz = entity.getZ() - camPos.z;
         double distSq = dx * dx + dy * dy + dz * dz;
         if (distSq > CULL_DIST_SQ) return;
+
+        if (useGpuPath()) {
+            int gpuCount = distSq < NEAR_DIST_SQ ? GPU_MOTES_NEAR
+                    : distSq < MID_DIST_SQ ? GPU_MOTES_MID : GPU_MOTES_FAR;
+            Vec3 gpuAnchor = entity.getPosition(partialTicks).add(0.0D, 0.7D, 0.0D);
+            ShoalSwarmManager.enqueue(entity, gpuAnchor, partialTicks, gpuCount);
+            super.render(entity, entityYaw, partialTicks, poseStack, buffer, packedLight);
+            return;
+        }
 
         // One stable swarm per entity at max capacity. LOD is applied by drawing fewer motes at
         // distance, not by rebuilding the pool. Rebuilding on every LOD crossing was resetting
@@ -102,6 +125,14 @@ public class ShoalRenderer extends EntityRenderer<ShoalEntity> {
         Vec3 entPos = entity.getPosition(partialTicks);
         Vec3 anchor = entPos.add(0.0D, 0.7D, 0.0D);
         swarm.update(entity, anchor, partialTicks);
+
+        // A fresh interest briefly whitens the core and swells the halo: the shimmer of
+        // noticing. Values are small so it reads as a mood shift, not a flashbulb.
+        float excite = swarm.excitement();
+        int coreR = COLOR_R + (int) ((200 - COLOR_R) * excite * 0.6F);
+        int coreG = COLOR_G + (int) ((235 - COLOR_G) * excite * 0.6F);
+        float haloAlpha = Math.min(1F, HALO_ALPHA * (1F + 0.2F * excite));
+        float haloScale = HALO_SCALE * (1F + 0.15F * excite);
 
         Matrix4f matrix = poseStack.last().pose();
 
@@ -125,11 +156,11 @@ public class ShoalRenderer extends EntityRenderer<ShoalEntity> {
         // mote would break the BufferSource batch.
         VertexConsumer halo = buffer.getBuffer(ShoalRenderTypes.halo());
         emitPass(halo, swarm, matrix, camRight, camUp, entX, entY, entZ, count,
-                HALO_SCALE, HALO_ALPHA, HALO_R, HALO_G, HALO_B);
+                haloScale, haloAlpha, HALO_R, HALO_G, HALO_B);
 
         VertexConsumer core = buffer.getBuffer(ShoalRenderTypes.mote());
         emitPass(core, swarm, matrix, camRight, camUp, entX, entY, entZ, count,
-                1.0F, 1.0F, COLOR_R, COLOR_G, COLOR_B);
+                1.0F, 1.0F, coreR, coreG, COLOR_B);
 
         super.render(entity, entityYaw, partialTicks, poseStack, buffer, packedLight);
     }
@@ -178,6 +209,18 @@ public class ShoalRenderer extends EntityRenderer<ShoalEntity> {
                 .setUv(u, v)
                 .setOverlay(overlay)
                 .setLight(light);
+    }
+
+    private static boolean useGpuPath() {
+        Boolean gate = gpuPath;
+        if (gate == null) {
+            gate = VeilRenderSystem.computeSupported()
+                    && VeilRenderSystem.shaderStorageBufferSupported()
+                    && org.lwjgl.opengl.GL11C.glGetInteger(
+                            org.lwjgl.opengl.GL43C.GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS) > 0;
+            gpuPath = gate;
+        }
+        return gate;
     }
 
     private static int seedFor(ShoalEntity entity) {

@@ -66,8 +66,8 @@ public class DTEntityTypes {
     public static final DeferredHolder<EntityType<?>, EntityType<ShoalEntity>> SHOAL =
             ENTITY_TYPES.register("shoal", () -> EntityType.Builder
                     .<ShoalEntity>of(ShoalEntity::new, MobCategory.MISC)
-                    .sized(1.5F, 1.5F)
-                    .clientTrackingRange(12)
+                    .sized(3.5F, 3.5F)
+                    .clientTrackingRange(16)
                     .updateInterval(2)
                     .build("shoal"));
 }

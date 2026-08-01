@@ -1,0 +1,346 @@
+// GPU port of the old ShoalSwarm.update() per-mote loop. One invocation per mote; the CPU
+// half (ShoalSwarmState) feeds the trail, edge flags, and personality through ShoalParams.
+// Positions are anchor-relative so the floats stay small anywhere in the world; the absolute
+// anchor is only mixed in when sampling the noise field, where precision does not matter.
+
+#include dynetech:shoal
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+
+layout(std430, binding = 3) buffer ShoalMotes {
+    ShoalMote motes[];
+};
+
+uint rngState;
+
+// PCG output step over an LCG state. Streams are seeded per mote per frame from the swarm
+// seed, so respawn rolls differ every frame without any CPU involvement.
+float rnd() {
+    rngState = rngState * 747796405u + 2891336453u;
+    uint w = ((rngState >> ((rngState >> 28u) + 4u)) ^ rngState) * 277803737u;
+    w = (w >> 22u) ^ w;
+    return float(w) * (1.0 / 4294967296.0);
+}
+
+// Springs are deliberately weak everywhere but the vacuum. The looping circulation below
+// carries most of the motion, so the springs only need to keep the cloud from dispersing;
+// strong springs were what read as snapping.
+float attractFor(int state) {
+    if (state == SHOAL_STATE_DRIFT) return 0.12;
+    if (state == SHOAL_STATE_FLOW) return 0.40;
+    if (state == SHOAL_STATE_COLLAPSE) return 2.2;
+    if (state == SHOAL_STATE_ORBIT) return 0.35;
+    if (state == SHOAL_STATE_INSPECT) return 0.10;
+    if (state == SHOAL_STATE_TORNADO) return 0.45;
+    return 0.20;
+}
+
+float curlAmpFor(int state) {
+    if (state == SHOAL_STATE_FLOW) return 0.28;
+    // Orbit and drift lean on circulation; curl just keeps the paths from being perfect.
+    if (state == SHOAL_STATE_ORBIT) return 0.12;
+    if (state == SHOAL_STATE_DRIFT) return 0.10;
+    // Inspect barely stirs: the cloud hangs and shifts almost imperceptibly.
+    if (state == SHOAL_STATE_INSPECT) return 0.06;
+    // Enough wobble that the funnel breathes instead of running on rails.
+    if (state == SHOAL_STATE_TORNADO) return 0.12;
+    return 0.14;
+}
+
+float spawnRadiusFor(int state) {
+    if (state == SHOAL_STATE_DRIFT) return 6.5;
+    if (state == SHOAL_STATE_FLOW) return 3.1;
+    if (state == SHOAL_STATE_ORBIT) return 3.2;
+    if (state == SHOAL_STATE_INSPECT) return 8.0;
+    if (state == SHOAL_STATE_TORNADO) return 3.0;
+    return 6.0;
+}
+
+void respawnMote(uint i, int state, bool stagger) {
+    float radius = spawnRadiusFor(state);
+    float theta = rnd() * SHOAL_TAU;
+    float phi = acos(1.0 - 2.0 * rnd());
+    // Cube root gives uniform density through the sphere's volume.
+    float r = radius * pow(rnd(), 1.0 / 3.0);
+    vec3 pos = vec3(r * sin(phi) * cos(theta), r * cos(phi), r * sin(phi) * sin(theta));
+    if (state == SHOAL_STATE_HOLD) pos.y += 0.15;
+
+    float life = 60.0 * (0.6 + rnd() * 0.6);
+    // On the very first frame every slot spawns at once, so ages are staggered to keep the
+    // swarm from fading in and out on one shared cadence.
+    float age = stagger ? rnd() * life : 0.0;
+    float home = 0.5 + rnd() * 0.5;
+    float slot = 1.0 + rnd() * float(SHOAL_TRAIL_LEN - 2);
+    float offTheta = rnd() * SHOAL_TAU;
+    float offC = 1.0 - 2.0 * rnd();
+    float offS = sqrt(max(0.0, 1.0 - offC * offC));
+    float offMag = 0.5 + rnd() * 1.4;
+    // Vertical spread is squashed so the stream reads wide rather than tall.
+    vec3 personal = vec3(cos(offTheta) * offS * offMag, offC * offMag * 0.55, sin(offTheta) * offS * offMag);
+    float branch = floor(rnd() * 4.0);
+    float size = 0.028 + rnd() * 0.032;
+
+    motes[i].posAge = vec4(pos, age);
+    // Inherit some anchor velocity so Flow-spawned motes streak behind naturally.
+    motes[i].velLife = vec4(AnchorDelta.xyz * 0.4, life);
+    motes[i].shape = vec4(home, slot, size, branch);
+    motes[i].personal = vec4(personal, 0.0);
+}
+
+void main() {
+    uint i = gl_GlobalInvocationID.x;
+    if (i >= uint(motes.length())) return;
+
+    int state = StateFlags.x;
+    int flags = StateFlags.y;
+    rngState = shoalHash(i ^ shoalHash(uint(StateFlags.z) ^ shoalHash(uint(StateFlags.w))));
+
+    if ((flags & SHOAL_FLAG_FIRST) != 0) {
+        respawnMote(i, state, true);
+        return;
+    }
+
+    bool still = (flags & SHOAL_FLAG_STILL) != 0;
+    bool collapsing = state == SHOAL_STATE_COLLAPSE;
+    float dt = AnchorDelta.w;
+    float now = AnchorWorld.w;
+
+    ShoalMote m = motes[i];
+    // The anchor moved; shift the relative position the other way so the world position holds.
+    vec3 pos = m.posAge.xyz - AnchorDelta.xyz;
+    float age = m.posAge.w;
+    float life = m.velLife.w;
+
+    // Aging pauses during the frozen beat, otherwise the burst pattern dissolves within a
+    // second as its motes expire and respawn back at the center.
+    if (!still) age += dt;
+    if (age >= life) {
+        // During the vacuum, expired motes stay dead so the swarm thins out as it funnels
+        // into the anchor instead of endlessly refilling.
+        if (collapsing) {
+            motes[i].posAge = vec4(pos, age);
+            return;
+        }
+        respawnMote(i, state, false);
+        return;
+    }
+
+    vec3 vel = m.velLife.xyz;
+
+    // Rising edge of a burst: kick away from the anchor. The CPU raises the flag for exactly
+    // one frame, so this runs once per startle.
+    if ((flags & SHOAL_FLAG_BURST) != 0) {
+        vec3 b = pos;
+        float len = length(b);
+        if (len < 1.0e-3) {
+            float theta = rnd() * SHOAL_TAU;
+            float c = 1.0 - 2.0 * rnd();
+            float s = sqrt(max(0.0, 1.0 - c * c));
+            b = vec3(cos(theta) * s, c, sin(theta) * s);
+            len = 1.0;
+        }
+        vel += b * ((0.25 + rnd() * 0.3) / len);
+    }
+
+    // Curl-noise-ish flow: three sin/cos evaluations that stay bounded and read as a
+    // continuous flow field without a proper noise sampler.
+    float noiseTime = Tuning.z;
+    vec3 wp = AnchorWorld.xyz + pos;
+    vec3 curl = vec3(
+            sin((wp.y + noiseTime) * 0.6) * cos((wp.z - noiseTime) * 0.5),
+            sin((wp.z - noiseTime) * 0.7) * cos((wp.x + noiseTime) * 0.4),
+            sin((wp.x + noiseTime) * 0.5) * cos((wp.y - noiseTime) * 0.6));
+
+    float excite = Tuning.x;
+    float branchOpen = Tuning.y;
+    float home = m.shape.x;
+    float slot = m.shape.y;
+    float branch = m.shape.w;
+    vec3 personal = m.personal.xyz;
+    bool primary = (flags & SHOAL_FLAG_PRIMARY) != 0;
+    // The secondary lobe rides the same trail but stays cloudier: the primary pulls into a
+    // crisp braided line, this one loosens, so a bonded pair reads as one organism with a
+    // dense leading edge and a diffuse wake.
+    float lineSpread = primary ? 1.0 : 1.8;
+    float lineRest = primary ? 0.2 : 0.5;
+    float shellR = spawnRadiusFor(state);
+    int trailHead = TrailInfo.x;
+    int trailWritten = TrailInfo.y;
+
+    // One entity now carries the whole multi-lobe reading: each branch tracks its own slowly
+    // wandering sub-cluster center. branchOpen already cycles with the swarm's braid
+    // personality, so the lobes drift apart, orbit each other, and fold back into one cloud.
+    // The per-lobe shell tightens as the lobes open so each cluster stays readable.
+    float lp = now * 0.013 + branch * 2.39 + float(StateFlags.z & 255) * 0.37;
+    vec3 lobeCenter = vec3(
+            sin(lp + branch * 1.7),
+            sin(lp * 0.77 + branch * 3.1) * 0.5,
+            cos(lp * 0.9 + branch * 0.6)) * (shellR * 0.55 * branchOpen);
+    // A slow breath swells and settles the whole shell so a parked cloud never sits at one
+    // frozen radius.
+    float breath = 1.0 + 0.05 * sin(now * 0.035 + float(StateFlags.z & 63) * 0.4);
+    float lobeRest = home * shellR * mix(1.0, 0.62, branchOpen) * breath;
+    // The newest trail sample carries the avoidance for where the swarm hovers right now:
+    // keep the lobe centers inside its clearance and shove them off nearby solids, so the
+    // idle cloud stops leaning through walls and floors.
+    float headClear = max(0.3, Trail[trailHead].w - 0.5);
+    float lcl = length(lobeCenter);
+    if (lcl > headClear) lobeCenter *= headClear / lcl;
+    lobeCenter += vec3(TrailAvoid[trailHead].x, TrailAvoid[trailHead].w * 0.5, TrailAvoid[trailHead].y);
+    lobeRest = min(lobeRest, headClear);
+
+    vec3 target;
+    float rest;
+    if (collapsing) {
+        // The drain point: the disk that opened the vacuum if it is still flying (near
+        // misses keep going), otherwise the anchor. The CPU repacks it into Interest.
+        target = Interest.w > 0.5 ? Interest.xyz : vec3(0.0);
+        rest = 0.0;
+    } else if (state == SHOAL_STATE_FLOW && trailWritten > 2) {
+        // Each mote follows its own fixed slot on the trail plus a personal sideways offset,
+        // so the stream has genuine thickness rather than converging onto the trail line.
+        int stepsBack = min(trailWritten - 1, int(slot));
+        int idx = (trailHead - stepsBack + SHOAL_TRAIL_LEN) % SHOAL_TRAIL_LEN;
+        target = Trail[idx].xyz + personal * lineSpread;
+        // The four strands corkscrew around the center line with 90-degree phase offsets, so
+        // they cross over and under one another along the ribbon. branchOpen cycles the helix
+        // radius; recorded avoidance shoves the target sideways and widens the helix so the
+        // stream visibly parts around trunks and poles.
+        int ahead = (idx + 1) % SHOAL_TRAIL_LEN;
+        vec2 dir = Trail[ahead].xz - Trail[idx].xz;
+        float hl = length(dir);
+        if (hl > 1.0e-4 && branchOpen > 0.05) {
+            float along = float(stepsBack) / float(SHOAL_TRAIL_LEN);
+            // Two full twists over the visible ribbon, rolling along it, so the strands
+            // visibly wrap over and under rather than gently weaving.
+            float wPhase = along * 12.57 + branch * 1.571 + now * 0.06;
+            float amp = branchOpen * (0.6 + 0.4 * along) * (1.0 + TrailAvoid[idx].z);
+            float lat = sin(wPhase) * amp * 2.8;
+            // Cap the sideways swing at the recorded clearance so whole strands don't arc
+            // through a trunk the center line is politely steering past.
+            float maxLat = max(0.15, Trail[idx].w - 0.75);
+            lat = clamp(lat, -maxLat, maxLat);
+            target.x += -dir.y / hl * lat;
+            target.z += dir.x / hl * lat;
+            target.y += cos(wPhase) * amp;
+        }
+        // Clamp the whole offset from the center line, personal spread included, to the
+        // recorded clearance; capping only the helix still let offset motes cut through
+        // close walls. The shove is added after so it can push past the clamp.
+        vec3 off = target - Trail[idx].xyz;
+        float offH = length(off.xz);
+        float maxOff = max(0.15, Trail[idx].w - 0.45);
+        if (offH > maxOff) off.xz *= maxOff / offH;
+        off.y = clamp(off.y, -maxOff, maxOff);
+        target = Trail[idx].xyz + off
+                + vec3(TrailAvoid[idx].x, TrailAvoid[idx].w, TrailAvoid[idx].y);
+        rest = lineRest;
+    } else if (state == SHOAL_STATE_TORNADO) {
+        // A soft updraft: each mote rides a slowly rising spiral that widens toward the top,
+        // then recirculates from the bottom.
+        float hNorm = fract(slot / float(SHOAL_TRAIL_LEN) + now * 0.008);
+        float ang = now * 0.11 + hNorm * 5.0 + branch * 1.571;
+        float rad = 1.2 + hNorm * 3.5;
+        target = vec3(cos(ang) * rad, -1.8 + hNorm * 6.5, sin(ang) * rad);
+        rest = 0.3;
+    } else if (state == SHOAL_STATE_ORBIT) {
+        // Hold each mote to a ring band; the swirl below does the going-around. Branches
+        // sit at staggered heights so the wheel reads as layered, not a flat disc.
+        float hl2 = length(pos.xz);
+        vec2 ringDir = hl2 > 0.05 ? pos.xz / hl2 : vec2(1.0, 0.0);
+        float ringR = min(2.2 + home * 1.8, max(0.4, Trail[trailHead].w - 0.4));
+        target = vec3(ringDir.x * ringR, (branch - 1.5) * 0.8 + personal.y * 0.5, ringDir.y * ringR);
+        rest = 0.25;
+    } else if (Interest.w > 0.5 && branch < 0.5 && !still) {
+        // Curiosity used to read as a straight tendril. Now a slice of the swarm leans out
+        // along a bowed arc that swells and washes back, so the gesture stays part of the
+        // cloud instead of a string pinned to the target.
+        vec3 toward = Interest.xyz;
+        float rd = length(toward);
+        if (rd > 2.0 && rd < 24.0) {
+            vec3 dirN = toward / rd;
+            float f = slot / float(SHOAL_TRAIL_LEN);
+            float along = min(rd - 1.0, 10.0) * f * (0.7 + 0.3 * sin(now * 0.03 + branch));
+            vec2 side2 = normalize(vec2(-dirN.z, dirN.x) + vec2(1.0e-4, 0.0));
+            float bow = sin(f * 3.1416) * (1.2 + 0.65 * sin(now * 0.04 + slot));
+            target = dirN * along + vec3(side2.x * bow, bow * 0.35, side2.y * bow)
+                    + personal * (1.0 - 0.5 * f);
+            rest = 0.3;
+        } else {
+            target = lobeCenter;
+            rest = lobeRest;
+        }
+    } else {
+        target = lobeCenter;
+        rest = lobeRest;
+    }
+
+    vec3 d = target - pos;
+    float distSq = dot(d, d);
+    if (collapsing && distSq < 0.04) {
+        // Arrived at the drain: gone. The disk ate it.
+        motes[i].posAge = vec4(pos, life);
+        motes[i].velLife = vec4(vel, life);
+        return;
+    }
+
+    float attract = still ? 0.0 : attractFor(state) * (1.0 + excite * 0.4);
+    if (distSq > 0.001) {
+        float dist = sqrt(distSq);
+        // Spring toward each mote's own rest shell instead of the target point itself, so the
+        // cloud stays filled out. Stretch goes slightly negative inside the shell so crowded
+        // motes ease back outward. The vacuum collapses the shell to zero.
+        if (collapsing) rest = 0.0;
+        float stretch = clamp(dist - rest, -0.6, 1.5);
+        float pull = stretch * attract * dt;
+        vel += d / dist * pull;
+    }
+
+    // Self-looping circulation. The hovering states ride slowly precessing tilted orbits
+    // around the cloud center, one plane per branch a quarter turn apart, so the lobes wind
+    // around and through one another; the springs above only keep it from dispersing. Orbit
+    // trades the tilt for a flat, deliberate wheel around whatever it hovers over.
+    if (!still && !collapsing) {
+        if (state == SHOAL_STATE_ORBIT) {
+            float hLen = length(pos.xz);
+            if (hLen > 0.05) {
+                float swirl = 0.3 * dt / max(hLen, 0.8);
+                vel.x += -pos.z * swirl;
+                vel.z += pos.x * swirl;
+            }
+        } else {
+            float circ = state == SHOAL_STATE_DRIFT ? 0.035
+                    : state == SHOAL_STATE_INSPECT ? 0.03
+                    : state == SHOAL_STATE_HOLD ? 0.05 : 0.0;
+            circ *= 1.0 + excite * 0.6;
+            if (circ > 0.0) {
+                float ba = branch * 1.571 + lp * 0.35;
+                vec3 axisB = normalize(vec3(sin(ba) * 0.5, 1.0, cos(ba) * 0.5));
+                vec3 tang = cross(axisB, pos - lobeCenter * 0.5);
+                float tl = length(tang);
+                if (tl > 0.05) vel += tang * (circ * dt / tl);
+            }
+        }
+    }
+
+    bool justBursted = (flags & SHOAL_FLAG_BURST) != 0;
+    float curlAmp = collapsing ? 0.0 : curlAmpFor(state) * (1.0 + excite * 0.8);
+    // The spread watch stays subtly alive: a mean-zero flutter well under the damping's
+    // pull, so motes shimmer in place without the cloud drifting off its burst pose.
+    if (still) curlAmp = 0.008 * sin(now * 0.11 + slot * 2.1);
+    vel += curl * curlAmp * dt;
+    // High retention on the moving states so arcs carry through instead of dying into the
+    // springs. Still drops damping hard so the burst decays into a genuine freeze.
+    float damping = still ? 0.72 : (state == SHOAL_STATE_HOLD ? 0.90 : 0.95);
+    vel *= damping;
+
+    // Speed clamp. Still gets a tight cap so the frozen pose stays frozen, but the burst
+    // frame itself skips it so the outward pop lands visibly before the cap takes over.
+    // The vacuum gets a loose cap so the suck reads fast.
+    float capMag = collapsing ? 1.1 : ((still && !justBursted) ? 0.06 : 0.5);
+    float mag = length(vel);
+    if (mag > capMag) vel *= capMag / mag;
+
+    motes[i].posAge = vec4(pos + vel, age);
+    motes[i].velLife = vec4(vel, life);
+}
