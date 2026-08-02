@@ -41,4 +41,9 @@ public class DTBlockEntities {
             BLOCK_ENTITIES.register("shoal_growth",
                     () -> BlockEntityType.Builder.of(ShoalGrowthBlockEntity::new, DTBlocks.SHOAL_GROWTH.get())
                             .build(null));
+
+    public static final DeferredHolder<BlockEntityType<?>, BlockEntityType<ShoalBloomBlockEntity>> SHOAL_BLOOM =
+            BLOCK_ENTITIES.register("shoal_bloom",
+                    () -> BlockEntityType.Builder.of(ShoalBloomBlockEntity::new, DTBlocks.SHOAL_BLOOM.get())
+                            .build(null));
 }

@@ -20,5 +20,13 @@ public final class DTParticles {
     public static final DeferredHolder<ParticleType<?>, SimpleParticleType> SHOAL_MOTE =
             PARTICLE_TYPES.register("shoal_mote", () -> new SimpleParticleType(false));
 
+    /**
+     * The still, dim cousin of the mote: used to build the ambient haze that hangs around a
+     * cluster of Shoal blocks. Softer, longer-lived, mostly stationary. Spawned client-side from
+     * animateTick.
+     */
+    public static final DeferredHolder<ParticleType<?>, SimpleParticleType> SHOAL_HAZE =
+            PARTICLE_TYPES.register("shoal_haze", () -> new SimpleParticleType(false));
+
     private DTParticles() {}
 }

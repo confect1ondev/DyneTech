@@ -31,7 +31,6 @@ import java.util.UUID;
 public class PhaseDiskItem extends Item {
 
     // Server-side channel bookkeeping: which carrier each channeling user is draining.
-    // No entry means a self-cure channel.
     private static final Map<UUID, UUID> CHANNELS = new HashMap<>();
 
     public PhaseDiskItem(Properties properties) {
@@ -41,14 +40,6 @@ public class PhaseDiskItem extends Item {
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
-
-        // Self-cure: if the player holding the disk is infected, the same use action channels
-        // the extraction instead of throwing. Matches the entity-interaction path so the
-        // player never has to right-click themselves.
-        if (isInfectedCarrier(player)) {
-            player.startUsingItem(hand);
-            return InteractionResultHolder.consume(stack);
-        }
 
         player.getCooldowns().addCooldown(this, 10);
         level.playSound(null, player.getX(), player.getY(), player.getZ(),
@@ -133,7 +124,8 @@ public class PhaseDiskItem extends Item {
     /** The carrier this channel is draining, or null if the channel should abort. */
     private static Player channelTarget(Player user) {
         UUID targetId = CHANNELS.get(user.getUUID());
-        Player target = targetId == null ? user : user.level().getPlayerByUUID(targetId);
+        if (targetId == null) return null;
+        Player target = user.level().getPlayerByUUID(targetId);
         if (target == null || !target.isAlive() || !isInfectedCarrier(target)) return null;
         double range = DTConfig.CURE_CHANNEL_RANGE.get();
         return user.distanceToSqr(target) > range * range ? null : target;

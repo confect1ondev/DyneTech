@@ -2,31 +2,32 @@ package com.confect1on.dynetech.blockentity;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.NbtUtils;
 import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.item.ItemEntity;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 
 /**
- * Storage for a Shoal Growth cluster. Holds up to {@link #CAPACITY} block-ids (as itemstacks).
- * Ordering is preserved for tooltips/debug but not otherwise meaningful. NBT serialization uses
- * a flat list of resource-location strings so the payload stays trivially small.
+ * Storage for a Shoal Growth cluster. Holds up to {@link #CAPACITY} consumed blocks, each with
+ * the exact state and the position it was taken from, so breaking the growth puts everything
+ * back where it was. Block-entity payloads are never involved because the seep refuses to
+ * target container blocks in the first place.
  */
 public class ShoalGrowthBlockEntity extends BlockEntity {
 
     public static final int CAPACITY = 16;
 
-    private final List<ItemStack> stored = new ArrayList<>();
+    private final List<StoredBlock> stored = new ArrayList<>();
 
     public ShoalGrowthBlockEntity(BlockPos pos, BlockState state) {
         super(DTBlockEntities.SHOAL_GROWTH.get(), pos, state);
@@ -40,39 +41,47 @@ public class ShoalGrowthBlockEntity extends BlockEntity {
         return stored.size() >= CAPACITY;
     }
 
-    /**
-     * Absorb a block state. The block is stored as its Item form; block-entity payloads are not
-     * captured because the seep never targets container blocks in the first place.
-     */
-    public boolean absorb(BlockState state) {
+    public boolean absorb(BlockState state, BlockPos from) {
         if (isFull()) return false;
-        Block block = state.getBlock();
-        ItemStack asItem = new ItemStack(block.asItem());
-        if (asItem.isEmpty() || asItem.getItem() == Items.AIR) return false;
-        stored.add(asItem);
+        stored.add(new StoredBlock(state, from.immutable()));
         setChanged();
         return true;
     }
 
-    public List<ItemStack> releaseStored() {
-        List<ItemStack> copy = new ArrayList<>(stored);
+    /**
+     * Put every consumed block back exactly where it came from. If something now occupies an
+     * origin, that entry falls back to an item drop at the growth so nothing is ever lost.
+     */
+    public void restoreAll(ServerLevel server, BlockPos selfPos) {
+        for (StoredBlock s : stored) {
+            BlockState at = server.getBlockState(s.pos());
+            if ((at.isAir() || at.canBeReplaced()) && server.setBlock(s.pos(), s.state(), 3)) {
+                continue;
+            }
+            ItemStack drop = new ItemStack(s.state().getBlock().asItem());
+            if (drop.isEmpty()) continue;
+            ItemEntity item = new ItemEntity(server,
+                    selfPos.getX() + 0.5D, selfPos.getY() + 0.5D, selfPos.getZ() + 0.5D, drop);
+            item.setDefaultPickUpDelay();
+            server.addFreshEntity(item);
+        }
         stored.clear();
         setChanged();
-        return Collections.unmodifiableList(copy);
     }
 
     @Override
     protected void loadAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.loadAdditional(tag, registries);
         stored.clear();
-        ListTag list = tag.getList("Stored", Tag.TAG_STRING);
+        ListTag list = tag.getList("Stored", Tag.TAG_COMPOUND);
         for (int i = 0; i < list.size(); i++) {
-            ResourceLocation id = ResourceLocation.tryParse(list.getString(i));
-            if (id == null) continue;
-            Block block = BuiltInRegistries.BLOCK.get(id);
-            if (block == null) continue;
-            ItemStack stack = new ItemStack(block.asItem());
-            if (!stack.isEmpty()) stored.add(stack);
+            CompoundTag entry = list.getCompound(i);
+            BlockState state = NbtUtils.readBlockState(
+                    registries.lookupOrThrow(Registries.BLOCK), entry.getCompound("State"));
+            if (state.isAir()) continue;
+            Optional<BlockPos> pos = NbtUtils.readBlockPos(entry, "Pos");
+            if (pos.isEmpty()) continue;
+            stored.add(new StoredBlock(state, pos.get()));
         }
     }
 
@@ -80,10 +89,14 @@ public class ShoalGrowthBlockEntity extends BlockEntity {
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.saveAdditional(tag, registries);
         ListTag list = new ListTag();
-        for (ItemStack s : stored) {
-            ResourceLocation id = BuiltInRegistries.ITEM.getKey(s.getItem());
-            list.add(net.minecraft.nbt.StringTag.valueOf(id.toString()));
+        for (StoredBlock s : stored) {
+            CompoundTag entry = new CompoundTag();
+            entry.put("State", NbtUtils.writeBlockState(s.state()));
+            entry.put("Pos", NbtUtils.writeBlockPos(s.pos()));
+            list.add(entry);
         }
         tag.put("Stored", list);
     }
+
+    private record StoredBlock(BlockState state, BlockPos pos) {}
 }

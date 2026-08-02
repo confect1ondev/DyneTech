@@ -105,6 +105,12 @@ public class DyneTech {
         // canceled) also skips the stop, which is what we want.
         NeoForge.EVENT_BUS.addListener(net.neoforged.bus.api.EventPriority.HIGHEST,
                 GodhoodEvents::onGodhoodDeathStopWhispers);
+        // Shoal flinch on player block breaks. Uses the break event rather than the blocks'
+        // playerWillDestroy overrides so nothing in the break pipeline can skip it. The level
+        // tick drives the sustained agitation for the few seconds after a break.
+        NeoForge.EVENT_BUS.addListener(DyneTech::onBlockBreak);
+        NeoForge.EVENT_BUS.addListener(DyneTech::onLevelTick);
+        NeoForge.EVENT_BUS.addListener(DyneTech::onServerStopped);
         // Species pool is a datapack reload listener so pack authors can override any mob's pool.
         NeoForge.EVENT_BUS.addListener(DyneTech::onAddReloadListeners);
         NeoForge.EVENT_BUS.addListener(DyneTech::onRegisterCommands);
@@ -128,6 +134,12 @@ public class DyneTech {
         if (event.getEntity() instanceof LivingEntity living) {
             PerkLifecycle.tickPerks(living);
         }
+        // Shoal contact sweep for every player: catches walking into a spire from the side,
+        // which stepOn alone misses. Cheap and rate-limited inside the helper.
+        if (event.getEntity() instanceof net.minecraft.world.entity.player.Player player
+                && player.level() instanceof net.minecraft.server.level.ServerLevel server) {
+            com.confect1on.dynetech.gene.ShoalContact.tickBlockContact(server, player);
+        }
     }
 
     private static void onPlayerChangedDimension(PlayerEvent.PlayerChangedDimensionEvent event) {
@@ -136,6 +148,35 @@ public class DyneTech {
 
     private static void onPlayerLoggedIn(PlayerEvent.PlayerLoggedInEvent event) {
         PerkLifecycle.reapplyAll(event.getEntity());
+    }
+
+    private static void onBlockBreak(net.neoforged.neoforge.event.level.BlockEvent.BreakEvent event) {
+        if (!(event.getLevel() instanceof net.minecraft.server.level.ServerLevel server)) return;
+        net.minecraft.world.level.block.Block block = event.getState().getBlock();
+        if (block instanceof com.confect1on.dynetech.block.ShoalGrowthBlock) {
+            com.confect1on.dynetech.block.ShoalSeep.notifyBroken(server, event.getPos(), true);
+        } else if (block instanceof com.confect1on.dynetech.block.ShoalBloomBlock) {
+            // Covered blooms swap back to the block they grew over instead of breaking. Bare
+            // pyre blooms are pure biomass, so the swarm queues those spots for regrowth.
+            boolean restored = com.confect1on.dynetech.block.ShoalBloomBlock
+                    .restoreCovered(server, event.getPos());
+            com.confect1on.dynetech.block.ShoalSeep.notifyBroken(server, event.getPos(), !restored);
+            if (restored) {
+                event.setCanceled(true);
+            }
+        }
+    }
+
+    private static void onLevelTick(net.neoforged.neoforge.event.tick.LevelTickEvent.Post event) {
+        if (event.getLevel() instanceof net.minecraft.server.level.ServerLevel server) {
+            com.confect1on.dynetech.block.ShoalSeep.tickFlinch(server);
+        }
+    }
+
+    // Static shoal state is keyed by dimension, so without this a singleplayer world switch
+    // would leak one world's flinch timers and regrow queue into the next.
+    private static void onServerStopped(net.neoforged.neoforge.event.server.ServerStoppedEvent event) {
+        com.confect1on.dynetech.block.ShoalSeep.clearTransient();
     }
 
     private static void onAddReloadListeners(AddReloadListenerEvent event) {

@@ -84,6 +84,9 @@ public class DTClient {
             event.registerSpecial(
                     com.confect1on.dynetech.particle.DTParticles.SHOAL_MOTE.get(),
                     new ShoalMoteParticle.Provider());
+            event.registerSpecial(
+                    com.confect1on.dynetech.particle.DTParticles.SHOAL_HAZE.get(),
+                    new com.confect1on.dynetech.client.renderer.ShoalHazeParticle.Provider());
         }
 
         @SubscribeEvent

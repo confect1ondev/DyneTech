@@ -22,12 +22,14 @@ import com.confect1on.dynetech.item.DTItems;
 
 public class ThrownPhaseDiskEntity extends ThrowableItemProjectile {
 
-    // Recoverable-on-miss: the disk is expensive enough that losing one to a stray throw would
-    // feel awful. Cap airtime anyway so a disk lobbed into loaded-chunk void gets cleaned up.
+    // Cap airtime so a disk lobbed into loaded-chunk void gets cleaned up.
     private static final int MAX_LIFETIME_TICKS = 20 * 60;
     // A throw does not need to thread the 1.5-block hitbox; passing anywhere through the
     // visible cloud opens the vacuum.
     private static final double NEAR_MISS_RADIUS = 2.5D;
+    // Landing on infected ground phases out a 5x5x5 pocket of it: covered blooms swap back
+    // to the blocks they grew over, pyre biomass vanishes.
+    private static final int PURGE_RADIUS = 2;
 
     // Set once the disk has eaten a Shoal. It keeps flying as the drain point the motes get
     // pulled into, but the kill consumed it: it dissipates on landing instead of dropping.
@@ -96,8 +98,11 @@ public class ThrownPhaseDiskEntity extends ThrowableItemProjectile {
     protected void onHitBlock(BlockHitResult result) {
         super.onHitBlock(result);
         if (this.level().isClientSide) return;
-        // Never lost on a miss; always recoverable at the impact point. Unless it fed.
-        if (!this.spent) dropSelfAt(result.getLocation());
+        if (this.level() instanceof ServerLevel server) {
+            com.confect1on.dynetech.block.ShoalSeep.purge(server, result.getBlockPos(), PURGE_RADIUS);
+        }
+        // Landing discharges the disk into the ground (purging any infection there), so a
+        // grounded disk is always gone. Only an entity hit leaves it recoverable.
         this.discard();
     }
 
