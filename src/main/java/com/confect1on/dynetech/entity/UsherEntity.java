@@ -76,8 +76,6 @@ public class UsherEntity extends PathfinderMob {
     public static final double RELEASE_RADIUS = 10.0;
     public static final float BLAST_INNER_RADIUS = 5.0F;
     public static final float BLAST_OUTER_RADIUS = 10.0F;
-    // Pulses expire after ~18 client ticks; re-trigger every 10 to keep them continuous.
-    private static final int DISCO_RETRIGGER_TICKS = 10;
     private static final float EASTEREGG_CHANCE = 0.30F;
     private static final int CATCH_FLASH_RGB = 0x7B2FBE;
 
@@ -227,15 +225,12 @@ public class UsherEntity extends PathfinderMob {
         this.setNoAi(true);
         serverLevel.playSound(null, this.getX(), this.getY(), this.getZ(),
                 DTSounds.USHER_CHARGE.get(), SoundSource.HOSTILE, 1.5F, 1.0F);
-        triggerDisco();
+        broadcastRiftCharge();
     }
 
     private void tickCharging(ServerLevel serverLevel) {
         this.chargeTicks++;
         this.setDeltaMovement(0, this.getDeltaMovement().y, 0);
-        if (this.chargeTicks % DISCO_RETRIGGER_TICKS == 0) {
-            triggerDisco();
-        }
         if (this.chargeTicks < CHARGE_TICKS) return;
 
         // Fire the ring visual and stage catches. Sounds and the teleport itself are
@@ -289,8 +284,9 @@ public class UsherEntity extends PathfinderMob {
         return false;
     }
 
-    private void triggerDisco() {
-        PacketDistributor.sendToPlayersTrackingEntityAndSelf(this, new DTPayloads.SpawnPulses(this.getId()));
+    private void broadcastRiftCharge() {
+        PacketDistributor.sendToPlayersTrackingEntityAndSelf(this,
+                new DTPayloads.UsherRiftCharge(this.getId(), CHARGE_TICKS));
     }
 
     private void broadcastBlastVisual() {

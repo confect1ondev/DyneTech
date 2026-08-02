@@ -106,8 +106,15 @@ public final class DTPayloads {
                 UsherBlast.TYPE,
                 UsherBlast.STREAM_CODEC,
                 (payload, ctx) -> ctx.enqueueWork(() ->
-                        com.confect1on.dynetech.client.UsherBlastManager.trigger(
+                        com.confect1on.dynetech.client.renderer.usher.UsherAuraManager.triggerBlast(
                                 payload.entityId(), payload.innerRadius(), payload.outerRadius())));
+
+        registrar.playToClient(
+                UsherRiftCharge.TYPE,
+                UsherRiftCharge.STREAM_CODEC,
+                (payload, ctx) -> ctx.enqueueWork(() ->
+                        com.confect1on.dynetech.client.renderer.usher.UsherAuraManager.startCharge(
+                                payload.entityId(), payload.durationTicks())));
 
         registrar.playToServer(
                 InjectSelfWithGun.TYPE,
@@ -264,6 +271,23 @@ public final class DTPayloads {
                         ByteBufCodecs.FLOAT, UsherBlast::innerRadius,
                         ByteBufCodecs.FLOAT, UsherBlast::outerRadius,
                         UsherBlast::new);
+
+        @Override
+        public Type<? extends CustomPacketPayload> type() { return TYPE; }
+    }
+
+    /**
+     * Opens the Usher's Departure charge visual on the client. Duration lets the client run the
+     * ring-contraction timeline without polling the entity's sync data every tick, and lines the
+     * collapse pinch up with the server's blast broadcast.
+     */
+    public record UsherRiftCharge(int entityId, int durationTicks) implements CustomPacketPayload {
+        public static final Type<UsherRiftCharge> TYPE = new Type<>(DyneTech.id("usher_rift_charge"));
+        public static final StreamCodec<FriendlyByteBuf, UsherRiftCharge> STREAM_CODEC =
+                StreamCodec.composite(
+                        ByteBufCodecs.VAR_INT, UsherRiftCharge::entityId,
+                        ByteBufCodecs.VAR_INT, UsherRiftCharge::durationTicks,
+                        UsherRiftCharge::new);
 
         @Override
         public Type<? extends CustomPacketPayload> type() { return TYPE; }
