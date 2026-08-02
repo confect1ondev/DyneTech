@@ -942,10 +942,6 @@ public final class Gene {
     }
 
     /**
-     * Shared shape for MobEffectPerk tests: equip -> effect present, duration above the
-     * night-vision flash cutoff; unequip -> effect gone.
-     */
-    /**
      * Wraps a mock player + attribute-modifier cycle assertion. Kept separate from
      * {@link #assertAttributePerkCycles} because the mock player's {@code discard()}
      * behavior differs from spawned mob entities.
@@ -970,6 +966,10 @@ public final class Gene {
         helper.succeed();
     }
 
+    /**
+     * Shared shape for MobEffectPerk tests: equip -> effect present, duration above the
+     * night-vision flash cutoff; unequip -> effect gone.
+     */
     private static void assertMobEffectPerkCycles(GameTestHelper helper, Perk perk,
                                                   Holder<net.minecraft.world.effect.MobEffect> effect,
                                                   LivingEntity subject) {
@@ -1906,6 +1906,618 @@ public final class Gene {
         helper.assertTrue(!fresh.isExpired(now + 9L), "vial must remain fresh right up to the expiry tick");
         helper.assertTrue(fresh.isExpired(now + 10L), "vial must report expired at the expiry tick");
         helper.assertTrue(fresh.isExpired(now + 100L), "vial must remain expired past the expiry tick");
+        helper.succeed();
+    }
+
+    //  Remaining attribute / effect / immunity perks
+
+    /**
+     * Writes an entry straight into the attachment and returns it. For marker perks whose logic
+     * lives in {@code PerkEvents}: their onEquip is a no-op, so the attachment write is the
+     * whole equip.
+     */
+    private static PerkEntry equipMarker(LivingEntity entity, ResourceLocation perkId, float quality) {
+        PerkEntry entry = new PerkEntry(perkId, quality, Optional.empty(), Optional.empty());
+        EquippedPerks eq = entity.getData(DTAttachments.EQUIPPED_PERKS.get());
+        entity.setData(DTAttachments.EQUIPPED_PERKS.get(), eq.add(entry));
+        return entry;
+    }
+
+    /**
+     * Jumps the level clock forward to the next noon when it is not currently day. Forward-only
+     * so any other test measuring elapsed day time never sees the clock run backwards, and the
+     * sky brightness cache is refreshed immediately so {@code isDay} agrees within this tick.
+     */
+    private static void ensureDaytime(GameTestHelper helper) {
+        net.minecraft.server.level.ServerLevel level = helper.getLevel();
+        if (level.isDay()) return;
+        long time = level.getDayTime();
+        long target = time - (time % 24_000L) + 6_000L;
+        if (target <= time) target += 24_000L;
+        level.setDayTime(target);
+        level.updateSkyBrightness();
+    }
+
+    /** Shared shape for ImmunityPerk tests: equip strips an existing effect, tick strips a re-applied one. */
+    private static void assertImmunityStrips(GameTestHelper helper, Perk perk,
+                                             Holder<net.minecraft.world.effect.MobEffect> guarded) {
+        Villager v = spawnVillager(helper);
+        v.addEffect(new net.minecraft.world.effect.MobEffectInstance(guarded, 600));
+        helper.assertTrue(v.hasEffect(guarded), "precondition: effect must land before the immunity equips");
+
+        PerkEntry entry = new PerkEntry(perk.id(), 1.0F, Optional.empty(), Optional.empty());
+        perk.onEquip(v, entry);
+        helper.assertTrue(!v.hasEffect(guarded), perk.id() + " must strip " + guarded.getRegisteredName() + " on equip");
+
+        v.addEffect(new net.minecraft.world.effect.MobEffectInstance(guarded, 600));
+        perk.tick(v, entry);
+        helper.assertTrue(!v.hasEffect(guarded), perk.id() + " must strip a re-applied effect on tick");
+        v.discard();
+        helper.succeed();
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void perk_climber_attribute_cycle(GameTestHelper helper) {
+        assertAttributePerkCycles(helper, Perks.CLIMBER.get(), Attributes.STEP_HEIGHT, spawnZombie(helper));
+    }
+
+    /** Hoglin because it is one of the few vanilla mobs whose attribute map carries ATTACK_KNOCKBACK. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void perk_ram_attribute_cycle(GameTestHelper helper) {
+        ensureBootstrapped();
+        LivingEntity hoglin = helper.spawn(EntityType.HOGLIN, SUBJECT_POS);
+        assertAttributePerkCycles(helper, Perks.RAM.get(), Attributes.ATTACK_KNOCKBACK, hoglin);
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void perk_swift_strike_attribute_cycle(GameTestHelper helper) {
+        assertAttributePerkCyclesOnMockPlayer(helper, Perks.SWIFT_STRIKE.get(), Attributes.ATTACK_SPEED);
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void perk_composure_applies(GameTestHelper helper) {
+        assertMobEffectPerkCycles(helper, Perks.COMPOSURE.get(), MobEffects.DAMAGE_RESISTANCE, spawnVillager(helper));
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void perk_slow_fall_applies(GameTestHelper helper) {
+        assertMobEffectPerkCycles(helper, Perks.SLOW_FALL.get(), MobEffects.SLOW_FALLING, spawnVillager(helper));
+    }
+
+    /**
+     * Chameleon layers the dynetech:camouflage marker on top of vanilla invisibility - the marker
+     * is what the render mixin keys on to draw the host translucent instead of hidden. The plain
+     * invisibility half is covered by perk_invisibility_applies; this checks the marker half.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void perk_invisibility_applies_camouflage_marker(GameTestHelper helper) {
+        ensureBootstrapped();
+        Villager v = spawnVillager(helper);
+        PerkEntry entry = new PerkEntry(Perks.INVISIBILITY.getId(), 1.0F, Optional.empty(), Optional.empty());
+        Perks.INVISIBILITY.get().onEquip(v, entry);
+        helper.assertTrue(v.hasEffect(com.confect1on.dynetech.effect.DTEffects.CAMOUFLAGE),
+                "camouflage marker effect must accompany vanilla invisibility on equip");
+        Perks.INVISIBILITY.get().onUnequip(v, entry);
+        helper.assertTrue(!v.hasEffect(com.confect1on.dynetech.effect.DTEffects.CAMOUFLAGE),
+                "camouflage marker must be gone after unequip");
+        v.discard();
+        helper.succeed();
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void immunity_poison_strips_effect(GameTestHelper helper) {
+        ensureBootstrapped();
+        assertImmunityStrips(helper, Perks.POISON_IMMUNE.get(), MobEffects.POISON);
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void immunity_wither_strips_effect(GameTestHelper helper) {
+        ensureBootstrapped();
+        assertImmunityStrips(helper, Perks.WITHER_IMMUNE.get(), MobEffects.WITHER);
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void immunity_levitation_strips_effect(GameTestHelper helper) {
+        ensureBootstrapped();
+        assertImmunityStrips(helper, Perks.LEVITATION_IMMUNE.get(), MobEffects.LEVITATION);
+    }
+
+    // ============================================================================
+    //  Absorption + damage timer
+    // ============================================================================
+
+    /**
+     * A never-damaged host (LAST_DAMAGED_TICK at its -1 default) at full health gets the shield
+     * on the first observation tick. Amplifier comes from quality: 1.0 clamps to the max (I),
+     * 0.4 floors to 0.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void absorption_grants_when_unhurt(GameTestHelper helper) {
+        ensureBootstrapped();
+        var strong = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        PerkEntry pristine = new PerkEntry(Perks.ABSORPTION.getId(), 1.0F, Optional.empty(), Optional.empty());
+        Perks.ABSORPTION.get().tick(strong, pristine);
+        helper.assertTrue(strong.hasEffect(MobEffects.ABSORPTION),
+                "unhurt full-health host must receive absorption on the observation tick");
+        helper.assertTrue(strong.getEffect(MobEffects.ABSORPTION).getAmplifier() == 1,
+                "quality 1.0 must clamp to the max amplifier, got "
+                        + strong.getEffect(MobEffects.ABSORPTION).getAmplifier());
+
+        var weak = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        PerkEntry viable = new PerkEntry(Perks.ABSORPTION.getId(), 0.4F, Optional.empty(), Optional.empty());
+        Perks.ABSORPTION.get().tick(weak, viable);
+        helper.assertTrue(weak.hasEffect(MobEffects.ABSORPTION)
+                        && weak.getEffect(MobEffects.ABSORPTION).getAmplifier() == 0,
+                "quality 0.4 must floor to amplifier 0");
+        strong.discard();
+        weak.discard();
+        helper.succeed();
+    }
+
+    /** Within REGEN_DELAY_TICKS of the last hit the shield must not come back; after it, it must. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void absorption_waits_out_regen_cooldown(GameTestHelper helper) {
+        ensureBootstrapped();
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        player.setData(DTAttachments.LAST_DAMAGED_TICK.get(), 0L);
+        PerkEntry entry = new PerkEntry(Perks.ABSORPTION.getId(), 1.0F, Optional.empty(), Optional.empty());
+
+        Perks.ABSORPTION.get().tick(player, entry);
+        helper.assertTrue(!player.hasEffect(MobEffects.ABSORPTION),
+                "absorption must not regenerate inside the 600-tick cooldown");
+
+        // 600 ticks after the stamp (and on the 20-tick observation boundary) it regenerates.
+        player.tickCount = 600;
+        Perks.ABSORPTION.get().tick(player, entry);
+        helper.assertTrue(player.hasEffect(MobEffects.ABSORPTION),
+                "absorption must regenerate once the cooldown has elapsed");
+        player.discard();
+        helper.succeed();
+    }
+
+    /** Real damage through the event pipeline must stamp LAST_DAMAGED_TICK for the regen timer. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void damage_stamps_last_damaged_tick(GameTestHelper helper) {
+        ensureBootstrapped();
+        Villager v = spawnVillager(helper);
+        helper.assertTrue(v.getData(DTAttachments.LAST_DAMAGED_TICK.get()) == -1L,
+                "fresh entity must carry the -1 sentinel before any damage");
+
+        v.hurt(v.damageSources().generic(), 2.0F);
+        helper.assertTrue(v.getData(DTAttachments.LAST_DAMAGED_TICK.get()) == (long) v.tickCount,
+                "a real hit must stamp the victim's current tickCount");
+        v.discard();
+        helper.succeed();
+    }
+
+    // ============================================================================
+    //  Photosynthesis
+    // ============================================================================
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void photosynthesis_heals_in_sunlight(GameTestHelper helper) {
+        ensureBootstrapped();
+        ensureDaytime(helper);
+        Villager v = spawnVillager(helper);
+        helper.assertTrue(helper.getLevel().canSeeSky(v.blockPosition()),
+                "test environment must have open sky above the subject");
+        v.setHealth(5.0F);
+        PerkEntry entry = new PerkEntry(Perks.PHOTOSYNTHESIS.getId(), 1.0F, Optional.empty(), Optional.empty());
+        Perks.PHOTOSYNTHESIS.get().tick(v, entry);
+        helper.assertTrue(Math.abs(v.getHealth() - 6.0F) < 0.01F,
+                "sunlit host must heal quality * 1.0 hp, got " + v.getHealth());
+        v.discard();
+        helper.succeed();
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void photosynthesis_requires_open_sky(GameTestHelper helper) {
+        ensureBootstrapped();
+        ensureDaytime(helper);
+        Villager v = spawnVillager(helper);
+        v.setNoAi(true);
+        // Roof one block above head level blocks the sky column. canSeeSky reads sky light,
+        // which the light engine only recomputes a tick or two after the block change, so
+        // wait for the shadow to actually land before ticking the perk.
+        helper.setBlock(new BlockPos(2, 4, 2), net.minecraft.world.level.block.Blocks.STONE);
+        v.setHealth(5.0F);
+        PerkEntry entry = new PerkEntry(Perks.PHOTOSYNTHESIS.getId(), 1.0F, Optional.empty(), Optional.empty());
+        helper.succeedWhen(() -> {
+            helper.assertTrue(!helper.getLevel().canSeeSky(v.blockPosition()),
+                    "waiting for sky light to update under the roof");
+            v.tickCount = 40; // keep the perk's own interval gate open
+            Perks.PHOTOSYNTHESIS.get().tick(v, entry);
+            helper.assertTrue(Math.abs(v.getHealth() - 5.0F) < 0.01F,
+                    "covered host must not photosynthesize, got " + v.getHealth());
+            v.discard();
+        });
+    }
+
+    /** Player hosts additionally need 18+ food; mobs have no food data and skip the gate. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void photosynthesis_requires_player_hunger(GameTestHelper helper) {
+        ensureBootstrapped();
+        ensureDaytime(helper);
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        net.minecraft.world.phys.Vec3 center = helper.absoluteVec(new net.minecraft.world.phys.Vec3(2.5, 1.0, 2.5));
+        player.moveTo(center.x, center.y, center.z);
+        helper.assertTrue(helper.getLevel().canSeeSky(player.blockPosition()),
+                "test environment must have open sky above the subject");
+        player.setHealth(10.0F);
+        PerkEntry entry = new PerkEntry(Perks.PHOTOSYNTHESIS.getId(), 1.0F, Optional.empty(), Optional.empty());
+
+        player.getFoodData().setFoodLevel(10);
+        Perks.PHOTOSYNTHESIS.get().tick(player, entry);
+        helper.assertTrue(Math.abs(player.getHealth() - 10.0F) < 0.01F,
+                "hungry player must not photosynthesize, got " + player.getHealth());
+
+        player.getFoodData().setFoodLevel(20);
+        Perks.PHOTOSYNTHESIS.get().tick(player, entry);
+        helper.assertTrue(Math.abs(player.getHealth() - 11.0F) < 0.01F,
+                "well-fed player must heal 1.0 hp, got " + player.getHealth());
+        player.discard();
+        helper.succeed();
+    }
+
+    // ============================================================================
+    //  Behavior defects
+    // ============================================================================
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void photophobia_burns_in_sunlight(GameTestHelper helper) {
+        ensureBootstrapped();
+        ensureDaytime(helper);
+        Villager v = spawnVillager(helper);
+        helper.assertTrue(helper.getLevel().canSeeSky(v.blockPosition()),
+                "test environment must have open sky above the subject");
+        PerkEntry entry = new PerkEntry(Perks.PHOTOPHOBIA_DEFECT.getId(), 1.0F, Optional.empty(), Optional.empty());
+        Perks.PHOTOPHOBIA_DEFECT.get().tick(v, entry);
+        helper.assertTrue(Math.abs(v.getHealth() - 19.0F) < 0.01F,
+                "sunlit photophobe must take 1.0 fire damage, got " + v.getHealth());
+        v.discard();
+        helper.succeed();
+    }
+
+    /** Carved pumpkin is the deliberate escape hatch; a denatured entry never expresses at all. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void photophobia_blocked_by_pumpkin_and_denature(GameTestHelper helper) {
+        ensureBootstrapped();
+        ensureDaytime(helper);
+        Villager v = spawnVillager(helper);
+        v.setItemSlot(net.minecraft.world.entity.EquipmentSlot.HEAD,
+                new ItemStack(net.minecraft.world.item.Items.CARVED_PUMPKIN));
+        PerkEntry entry = new PerkEntry(Perks.PHOTOPHOBIA_DEFECT.getId(), 1.0F, Optional.empty(), Optional.empty());
+        Perks.PHOTOPHOBIA_DEFECT.get().tick(v, entry);
+        helper.assertTrue(Math.abs(v.getHealth() - 20.0F) < 0.01F,
+                "pumpkin-wearing photophobe must take no damage, got " + v.getHealth());
+
+        v.setItemSlot(net.minecraft.world.entity.EquipmentSlot.HEAD, ItemStack.EMPTY);
+        PerkEntry denatured = new PerkEntry(Perks.PHOTOPHOBIA_DEFECT.getId(), 0.02F, Optional.empty(), Optional.empty());
+        Perks.PHOTOPHOBIA_DEFECT.get().tick(v, denatured);
+        helper.assertTrue(Math.abs(v.getHealth() - 20.0F) < 0.01F,
+                "denatured photophobia must be inert, got " + v.getHealth());
+        v.discard();
+        helper.succeed();
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void gluttony_drains_player_food(GameTestHelper helper) {
+        ensureBootstrapped();
+        var player = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        float before = player.getFoodData().getExhaustionLevel();
+        PerkEntry entry = new PerkEntry(Perks.GLUTTONY_DEFECT.getId(), 1.0F, Optional.empty(), Optional.empty());
+        Perks.GLUTTONY_DEFECT.get().tick(player, entry);
+        float delta = player.getFoodData().getExhaustionLevel() - before;
+        helper.assertTrue(Math.abs(delta - 1.5F) < 0.01F,
+                "quality 1.0 gluttony must add 0.5 + 1.0 exhaustion per interval, got " + delta);
+
+        // Non-players carry no food data; the tick must be a silent no-op.
+        Villager v = spawnVillager(helper);
+        Perks.GLUTTONY_DEFECT.get().tick(v, entry);
+        v.discard();
+        player.discard();
+        helper.succeed();
+    }
+
+    /** Spider rather than zombie so the hostile has no natural reason to already target a villager. */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void screamer_retargets_idle_hostiles(GameTestHelper helper) {
+        ensureBootstrapped();
+        var spider = helper.spawn(EntityType.SPIDER, new BlockPos(1, 1, 1));
+        Villager host = helper.spawn(EntityType.VILLAGER, new BlockPos(3, 1, 3));
+        helper.assertTrue(spider.getTarget() == null, "freshly spawned spider must be idle");
+
+        PerkEntry entry = new PerkEntry(Perks.SCREAMER_DEFECT.getId(), 1.0F, Optional.empty(), Optional.empty());
+        Perks.SCREAMER_DEFECT.get().tick(host, entry);
+        helper.assertTrue(spider.getTarget() == host,
+                "the scream must retarget an idle hostile at the host");
+
+        // A hostile already locked onto a live target keeps it.
+        Villager decoy = helper.spawn(EntityType.VILLAGER, new BlockPos(1, 1, 3));
+        spider.setTarget(decoy);
+        Perks.SCREAMER_DEFECT.get().tick(host, entry);
+        helper.assertTrue(spider.getTarget() == decoy,
+                "the scream must not override an existing live target");
+        spider.discard();
+        host.discard();
+        decoy.discard();
+        helper.succeed();
+    }
+
+    /**
+     * Forces thunder (rain + thunder levels set directly so isThundering flips within this
+     * tick), rolls the 0.55-chance strike up to 30 times, and expects at least one lightning
+     * bolt entity. Bolts are discarded before they ever tick so no fire or damage leaks, and
+     * the weather is restored synchronously so concurrent tests never observe the storm.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void static_defect_draws_lightning_in_thunder(GameTestHelper helper) {
+        ensureBootstrapped();
+        net.minecraft.server.level.ServerLevel level = helper.getLevel();
+        Villager v = spawnVillager(helper);
+        PerkEntry entry = new PerkEntry(Perks.STATIC_DEFECT.getId(), 1.0F, Optional.empty(), Optional.empty());
+
+        level.setWeatherParameters(0, 6000, true, true);
+        level.setRainLevel(1.0F);
+        level.setThunderLevel(1.0F);
+        try {
+            helper.assertTrue(level.isThundering(), "forced storm must register as thundering");
+            helper.assertTrue(level.canSeeSky(v.blockPosition()),
+                    "test environment must have open sky above the subject");
+
+            boolean struck = false;
+            for (int i = 0; i < 30 && !struck; i++) {
+                Perks.STATIC_DEFECT.get().tick(v, entry);
+                var bolts = level.getEntitiesOfClass(net.minecraft.world.entity.LightningBolt.class,
+                        v.getBoundingBox().inflate(3.0D));
+                if (!bolts.isEmpty()) {
+                    bolts.forEach(net.minecraft.world.entity.LightningBolt::discard);
+                    struck = true;
+                }
+            }
+            helper.assertTrue(struck, "30 rolls at 55% per roll must produce a strike");
+        } finally {
+            level.setWeatherParameters(6000, 0, false, false);
+            level.setRainLevel(0.0F);
+            level.setThunderLevel(0.0F);
+        }
+        v.discard();
+        helper.succeed();
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void vertigo_triggers_near_drop(GameTestHelper helper) {
+        ensureBootstrapped();
+        PerkEntry entry = new PerkEntry(Perks.VERTIGO_DEFECT.getId(), 1.0F, Optional.empty(), Optional.empty());
+
+        // Flat ground: no ledge within the 5x5 probe, no nausea.
+        Villager grounded = spawnVillager(helper);
+        Perks.VERTIGO_DEFECT.get().tick(grounded, entry);
+        helper.assertTrue(!grounded.hasEffect(MobEffects.CONFUSION),
+                "host on flat ground must not get nausea");
+        grounded.discard();
+
+        // Atop a four-block pillar every neighboring column drops past the threshold.
+        for (int y = 1; y <= 4; y++) {
+            helper.setBlock(new BlockPos(2, y, 2), net.minecraft.world.level.block.Blocks.STONE);
+        }
+        Villager climber = helper.spawn(EntityType.VILLAGER, new BlockPos(2, 5, 2));
+        Perks.VERTIGO_DEFECT.get().tick(climber, entry);
+        helper.assertTrue(climber.hasEffect(MobEffects.CONFUSION),
+                "host beside a >3 block drop must get nausea");
+
+        Perks.VERTIGO_DEFECT.get().onUnequip(climber, entry);
+        helper.assertTrue(!climber.hasEffect(MobEffects.CONFUSION),
+                "unequip must clear the lingering nausea");
+        climber.discard();
+        helper.succeed();
+    }
+
+    // ============================================================================
+    //  Event-driven combat perks, through the real damage pipeline
+    //   These do not call perk code directly: they equip the marker and drive a real
+    //   hurt()/fall/death so the registered PerkEvents listeners do the work.
+    // ============================================================================
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void bloodthirst_heals_attacker_from_damage_dealt(GameTestHelper helper) {
+        ensureBootstrapped();
+        var attacker = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        equipMarker(attacker, Perks.BLOODTHIRST.getId(), 1.0F);
+        attacker.setHealth(10.0F);
+
+        Zombie victim = spawnZombie(helper);
+        victim.getAttribute(Attributes.ARMOR).setBaseValue(0.0D);
+        victim.hurt(victim.damageSources().playerAttack(attacker), 6.0F);
+
+        float victimLoss = 20.0F - victim.getHealth();
+        helper.assertTrue(Math.abs(victimLoss - 6.0F) < 0.01F,
+                "unarmored victim must take the full 6.0, lost " + victimLoss);
+        float expected = 10.0F + 6.0F * com.confect1on.dynetech.gene.perks.BloodthirstPerk.HEAL_FRACTION_AT_FULL_QUALITY;
+        helper.assertTrue(Math.abs(attacker.getHealth() - expected) < 0.01F,
+                "attacker must heal 35% of damage dealt, got " + attacker.getHealth() + " want " + expected);
+        victim.discard();
+        attacker.discard();
+        helper.succeed();
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void bane_of_undead_boosts_damage_to_undead(GameTestHelper helper) {
+        ensureBootstrapped();
+        var baned = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        equipMarker(baned, Perks.BANE_OF_UNDEAD.getId(), 1.0F);
+        var plain = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+
+        Zombie boosted = spawnZombie(helper);
+        boosted.getAttribute(Attributes.ARMOR).setBaseValue(0.0D);
+        boosted.hurt(boosted.damageSources().playerAttack(baned), 4.0F);
+        float boostedLoss = 20.0F - boosted.getHealth();
+
+        Zombie control = spawnZombie(helper);
+        control.getAttribute(Attributes.ARMOR).setBaseValue(0.0D);
+        control.hurt(control.damageSources().playerAttack(plain), 4.0F);
+        float controlLoss = 20.0F - control.getHealth();
+
+        helper.assertTrue(Math.abs(controlLoss - 4.0F) < 0.01F,
+                "control zombie must take the unmodified 4.0, lost " + controlLoss);
+        float expected = 4.0F * (1.0F + com.confect1on.dynetech.gene.perks.BaneOfUndeadPerk.DAMAGE_BONUS_AT_FULL_QUALITY);
+        helper.assertTrue(Math.abs(boostedLoss - expected) < 0.01F,
+                "bane must scale damage to undead by 1.75x, lost " + boostedLoss + " want " + expected);
+        boosted.discard();
+        control.discard();
+        baned.discard();
+        plain.discard();
+        helper.succeed();
+    }
+
+    /**
+     * Reflect fires only for a direct melee source. Expected reflect is computed from the
+     * damage the victim actually took, so the assertion holds even if the world difficulty
+     * scales player-received damage.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void cactus_skin_reflects_close_melee_only(GameTestHelper helper) {
+        ensureBootstrapped();
+        var victim = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        equipMarker(victim, Perks.CACTUS_SKIN.getId(), 1.0F);
+        Zombie attacker = spawnZombie(helper);
+        attacker.getAttribute(Attributes.ARMOR).setBaseValue(0.0D);
+
+        victim.hurt(victim.damageSources().mobAttack(attacker), 5.0F);
+        float victimLoss = 20.0F - victim.getHealth();
+        helper.assertTrue(victimLoss > 0.0F, "victim must actually take melee damage");
+        float expectedReflect = victimLoss
+                * com.confect1on.dynetech.gene.perks.CactusSkinPerk.REFLECT_FRACTION_AT_FULL_QUALITY;
+        float attackerLoss = 20.0F - attacker.getHealth();
+        helper.assertTrue(Math.abs(attackerLoss - expectedReflect) < 0.01F,
+                "melee attacker must eat 40% of dealt damage as thorns, lost "
+                        + attackerLoss + " want " + expectedReflect);
+
+        // Projectile: direct entity differs from the causing entity, so no reflect.
+        float attackerHealthBefore = attacker.getHealth();
+        var arrow = helper.spawn(EntityType.ARROW, new BlockPos(1, 2, 1));
+        victim.invulnerableTime = 0;
+        victim.hurt(victim.damageSources().arrow(arrow, attacker), 5.0F);
+        helper.assertTrue(Math.abs(attacker.getHealth() - attackerHealthBefore) < 0.01F,
+                "an arrow hit must not trigger the reflect");
+        arrow.discard();
+        attacker.discard();
+        victim.discard();
+        helper.succeed();
+    }
+
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void venom_touch_poisons_melee_victim(GameTestHelper helper) {
+        ensureBootstrapped();
+        Zombie attacker = spawnZombie(helper);
+        equipMarker(attacker, Perks.VENOM_TOUCH.getId(), 1.0F);
+        Villager victim = spawnVillager(helper);
+
+        victim.hurt(victim.damageSources().mobAttack(attacker), 3.0F);
+
+        helper.assertTrue(victim.hasEffect(MobEffects.POISON),
+                "melee hit from a venom-touch host must poison the victim");
+        int duration = victim.getEffect(MobEffects.POISON).getDuration();
+        int expected = com.confect1on.dynetech.gene.perks.VenomTouchPerk.BASE_DURATION_TICKS
+                + com.confect1on.dynetech.gene.perks.VenomTouchPerk.BONUS_DURATION_TICKS_AT_FULL_QUALITY;
+        helper.assertTrue(duration > expected - 10 && duration <= expected,
+                "quality 1.0 poison duration should be " + expected + " ticks, got " + duration);
+        helper.assertTrue(victim.getEffect(MobEffects.POISON).getAmplifier() == 0,
+                "venom touch stays at Poison I by design");
+        attacker.discard();
+        victim.discard();
+        helper.succeed();
+    }
+
+    /**
+     * Landing from 10 blocks: no fall damage, upward launch of BASE + blocks * PER_BLOCK. From
+     * 30 blocks the launch clamps to MAX_LAUNCH. Below MIN_FALL_DISTANCE nothing happens.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void slime_bounce_cancels_fall_and_launches(GameTestHelper helper) {
+        ensureBootstrapped();
+        Zombie bouncer = spawnZombie(helper);
+        equipMarker(bouncer, Perks.SLIME_BOUNCE.getId(), 1.0F);
+        bouncer.causeFallDamage(10.0F, 1.0F, bouncer.damageSources().fall());
+        helper.assertTrue(Math.abs(bouncer.getHealth() - 20.0F) < 0.01F,
+                "bounce must negate all fall damage, health " + bouncer.getHealth());
+        float expected = com.confect1on.dynetech.gene.perks.SlimeBouncePerk.BASE_LAUNCH
+                + 10.0F * com.confect1on.dynetech.gene.perks.SlimeBouncePerk.LAUNCH_PER_BLOCK;
+        helper.assertTrue(Math.abs(bouncer.getDeltaMovement().y - expected) < 0.01D,
+                "10-block fall must launch at " + expected + ", got " + bouncer.getDeltaMovement().y);
+        bouncer.discard();
+
+        Zombie skydiver = spawnZombie(helper);
+        equipMarker(skydiver, Perks.SLIME_BOUNCE.getId(), 1.0F);
+        skydiver.causeFallDamage(30.0F, 1.0F, skydiver.damageSources().fall());
+        helper.assertTrue(Math.abs(skydiver.getHealth() - 20.0F) < 0.01F,
+                "capped bounce must still negate all fall damage");
+        helper.assertTrue(Math.abs(skydiver.getDeltaMovement().y
+                        - com.confect1on.dynetech.gene.perks.SlimeBouncePerk.MAX_LAUNCH) < 0.01D,
+                "30-block fall must clamp to MAX_LAUNCH, got " + skydiver.getDeltaMovement().y);
+        skydiver.discard();
+
+        Zombie stumbler = spawnZombie(helper);
+        equipMarker(stumbler, Perks.SLIME_BOUNCE.getId(), 1.0F);
+        stumbler.causeFallDamage(1.0F, 1.0F, stumbler.damageSources().fall());
+        helper.assertTrue(stumbler.getDeltaMovement().y < 0.05D,
+                "a hop below MIN_FALL_DISTANCE must not launch");
+        stumbler.discard();
+        helper.succeed();
+    }
+
+    /**
+     * Quality kept low (0.25 -> radius 2.0) so the blast's entity range stays inside this
+     * test's own structure and cannot splash entities in neighboring gametests.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void explosive_death_detonates_and_clears_genome(GameTestHelper helper) {
+        ensureBootstrapped();
+        Zombie bomber = helper.spawn(EntityType.ZOMBIE, new BlockPos(3, 1, 3));
+        equipMarker(bomber, Perks.EXPLOSIVE_DEATH.getId(), 0.25F);
+        Villager bystander = helper.spawn(EntityType.VILLAGER, new BlockPos(2, 1, 2));
+        float before = bystander.getHealth();
+
+        bomber.hurt(bomber.damageSources().genericKill(), 1000.0F);
+
+        helper.assertTrue(bomber.isDeadOrDying(), "bomber must actually die");
+        helper.assertTrue(bystander.isDeadOrDying() || bystander.getHealth() < before,
+                "the death blast must damage the adjacent bystander");
+        helper.assertTrue(bomber.getData(DTAttachments.EQUIPPED_PERKS.get()).perks().isEmpty(),
+                "onDeath must wipe the genome after the explosion dispatch");
+        bystander.discard();
+        bomber.discard();
+        helper.succeed();
+    }
+
+    /**
+     * The teleport is a 25% roll per hit at quality 1.0, so 60 hits make a miss astronomically
+     * unlikely (0.75^60 ~ 3e-8). Health and i-frames reset between hits so every hit lands.
+     */
+    @GameTest(template = TEMPLATE, timeoutTicks = 40)
+    public static void ender_blink_teleports_victim_under_fire(GameTestHelper helper) {
+        ensureBootstrapped();
+        var victim = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        net.minecraft.world.phys.Vec3 center = helper.absoluteVec(new net.minecraft.world.phys.Vec3(2.5, 1.0, 2.5));
+        victim.moveTo(center.x, center.y, center.z);
+        equipMarker(victim, Perks.ENDER_BLINK.getId(), 1.0F);
+        net.minecraft.world.phys.Vec3 start = victim.position();
+
+        // The blink handler only reacts to hits with a living attacker, so a plain generic
+        // damage source would never roll the teleport chance.
+        var attacker = helper.makeMockPlayer(net.minecraft.world.level.GameType.SURVIVAL);
+        attacker.moveTo(center.x + 1.0, center.y, center.z);
+
+        boolean moved = false;
+        for (int i = 0; i < 60 && !moved; i++) {
+            victim.setHealth(20.0F);
+            victim.invulnerableTime = 0;
+            victim.hurt(victim.damageSources().playerAttack(attacker), 1.0F);
+            moved = victim.position().distanceToSqr(start) > 1.0D;
+        }
+        helper.assertTrue(moved, "ender blink must fire at least once across 60 qualifying hits");
+        victim.discard();
+        attacker.discard();
         helper.succeed();
     }
 }
