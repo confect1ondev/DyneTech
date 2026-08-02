@@ -109,6 +109,9 @@ public class DTClient {
                 // Hook the GPU Shoal manager into Veil's render-stage and resource-free events.
                 com.confect1on.dynetech.client.renderer.shoal.ShoalSwarmManager.init();
 
+                // Usher interior backdrop: the shader sphere the captive sees past the barrier walls.
+                com.confect1on.dynetech.client.renderer.usher.UsherVoidRenderer.init();
+
                 // Lethal-mode TCE swaps to a red-tip model via this override.
                 ItemProperties.register(
                         DTItems.TISSUE_COMPRESSION_ELIMINATOR.get(),

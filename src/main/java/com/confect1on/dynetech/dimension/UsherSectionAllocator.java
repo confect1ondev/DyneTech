@@ -17,10 +17,14 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Allocates and builds one 32^3 hollow bedrock section per Usher inside
- * {@link UsherInterior#DIMENSION}. Sections lay out along the +X axis 512 blocks apart, so
- * section {@code n} centers at {@code (n * 512, 64, 0)} - trivial to inspect with F3 and
- * impossible for two sections to collide.
+ * Allocates and builds one 32^3 hollow section per Usher inside
+ * {@link UsherInterior#DIMENSION}, walled with invisible barrier blocks so the cell reads
+ * as open void (the client draws a shader sphere far beyond the walls for the horizon),
+ * and handed to {@link UsherCellDecorator} for one of its preset dioramas
+ * (each contains an open flame: the only light, and the walk-in way to die out of the
+ * cell). Sections lay out along the +X axis 512 blocks
+ * apart, so section {@code n} centers at {@code (n * 512, 64, 0)} - trivial to inspect with
+ * F3 and impossible for two sections to collide.
  *
  * <p>SavedData is attached to the pocket dim, not the overworld, so it lives and dies with
  * the pocket world. Indexes are monotonically increasing and never reused, even after a
@@ -143,7 +147,7 @@ public class UsherSectionAllocator extends SavedData {
     }
 
     /**
-     * Fills the shell of a 32^3 bedrock cube around the section center and clears the
+     * Fills the shell of a 32^3 barrier cube around the section center and clears the
      * interior to air. Runs once per Usher, so a synchronous setBlock loop is fine.
      */
     private static void buildBox(ServerLevel level, int index) {
@@ -152,7 +156,7 @@ public class UsherSectionAllocator extends SavedData {
         int minY = floorY(), maxY = ceilingY();
         int minZ = CENTER_Z - HALF, maxZ = CENTER_Z + HALF - 1;
 
-        BlockState wall = Blocks.BEDROCK.defaultBlockState();
+        BlockState wall = Blocks.BARRIER.defaultBlockState();
         BlockState air = Blocks.AIR.defaultBlockState();
         BlockPos.MutableBlockPos m = new BlockPos.MutableBlockPos();
 
@@ -162,11 +166,13 @@ public class UsherSectionAllocator extends SavedData {
                     boolean shell = x == minX || x == maxX || y == minY || y == maxY || z == minZ || z == maxZ;
                     m.set(x, y, z);
                     // UPDATE_CLIENTS only: skip neighbor notifications, they trigger nothing
-                    // inside a bedrock shell and just churn ticks during a 32k-block build.
+                    // inside a sealed shell and just churn ticks during a 32k-block build.
                     level.setBlock(m, shell ? wall : air, Block.UPDATE_CLIENTS);
                 }
             }
         }
+
+        UsherCellDecorator.furnish(level, index);
     }
 
     // ---- persistence ----
